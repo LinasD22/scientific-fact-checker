@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MediCheck</title>
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+
+  <div class="container">
+
+    <h1>MediCheck</h1>
+
+    <textarea
+      id="claimInput"
+      placeholder="Enter a claim to verify..."
+    ></textarea>
+
+    <button id="checkBtn">
+      Check Fact
+    </button>
+
+    <div id="resultBox" class="hidden">
+
+      <h3>Result</h3>
+
+      <p id="verdict"></p>
+
+      <p id="explanation"></p>
+
+    </div>
+
+  </div>
+
+  <script src="popup.js"></script>
+
+</body>
+</html>
+
