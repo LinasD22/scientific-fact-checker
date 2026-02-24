@@ -9,3 +9,4 @@
 .idea
 /__pycache__/
 *.pyc
+/app/api/server/models/

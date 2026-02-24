@@ -21,7 +21,7 @@ class CoreAPIClient:
         Args:
             api_key: API key for authentication. Defaults to env var CORE_API_KEY.
         """
-        self.api_key = api_key or os.getenv("CORE_API_KEY", "FA1g238SlGqNT7a4CoLDEdhHOtzp6wky")
+        self.api_key = api_key or os.getenv("CORE_API_KEY", "")
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
