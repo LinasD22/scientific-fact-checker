@@ -30,7 +30,7 @@ for s in snippets:
 print("\n=== Test 2: Full pipeline (Core API → Pinecone → AI) ===")
 result = service.check_claim(
     original_claim="Migraines are a leading cause of disability worldwide.", # pvz Vaccines cause autism
-    limit=10,
+    limit=3,
 )
 print(f"Works searched:  {result.works_searched}")
 print(f"Works with text: {result.works_with_text}")
