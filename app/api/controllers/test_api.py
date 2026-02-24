@@ -2,9 +2,7 @@ from typing import Annotated
 
 from fastapi import Body, FastAPI, status
 from fastapi.responses import JSONResponse
-
-from app.bin import app
-
+from app.bin.application import app
 
 
 @app.get("/test")

@@ -4,16 +4,12 @@ API endpoints for the fact checker plugin.
 
 from typing import Annotated
 
-from fastapi import Body, APIRouter, HTTPException, status, FastAPI
+from fastapi import Body, APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from api.services.fact_checker import FactCheckerService, create_fact_checker
 
-app = FastAPI(
-    title="Scientific Fact Checker API",
-    description="AI-powered fact-checking against academic papers",
-    version="1.0.0"
-)
+router = APIRouter()
 
 _fact_checker: FactCheckerService | None = None
 
