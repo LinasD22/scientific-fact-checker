@@ -4,7 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-load_dotenv(Path(__file__).parent.parent.parent / ".env")  # nuskaito app/.env
+load_dotenv(Path(__file__).parent.parent.parent / ".env")  # nuskaito app/.env.
 
 from fastapi import FastAPI
 from api.controllers.fact_check import router as fact_check_router
