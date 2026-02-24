@@ -6,6 +6,7 @@ FactCheckerService orchestrates the full fact-checking pipeline:
 4. Compare results and return final verdict
 """
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -101,8 +102,18 @@ class FactCheckerService:
         ]
         works_with_text = [w for w in works if w.full_text or w.abstract]
 
-        # Step 2: Search Pinecone for high-relevance snippets
-        snippets = self._get_snippets_for_claim(claim=original_claim)
+        # Step 2: Chunk Core API texts and search Pinecone for best snippets
+        works_for_pinecone = [
+            {
+                "text": w.full_text or w.abstract or "",
+                "title": w.title,
+            }
+            for w in works_with_text
+        ]
+        snippets = self.pinecone_client.search_snippets_from_texts(
+            claim=original_claim,
+            works=works_for_pinecone,
+        )
 
         # Step 3: Pinecone snippets or fallback to full texts
         if snippets:
