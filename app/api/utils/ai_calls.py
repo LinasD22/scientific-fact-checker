@@ -185,6 +185,37 @@ sorted_results must be sorted by confidence (highest first)."""
         return self._call_ai(system_prompt, user_prompt)
 
 
+def fact_preprocess(
+        original_claim: str,
+) ->  dict[str, Any]:
+
+    ai_client = AICallClient()
+
+    expected_json = """
+    {
+        "is_health_related": "(true|false)",
+        "justification": "(one to two sentence why do you think so)",
+        "scientific paper names suggestions": [
+            "one name for scientific paper",
+            "second name for scientific paper",
+            "third name for scientific paper",
+        ]
+    }
+    """
+    role="Hello imagine you are a critical classifier."
+
+    prompt = (
+        " I want you to classify this fact to either related with health or not (this will later be used for fact cheking with health service)"
+        f". Strictly return a json:\n {expected_json} \n The fact to preprocess: {original_claim} \n"
+    )
+    # call ai
+    json = ai_client._call_ai(role, prompt)
+
+    print(json)
+    # parse json
+    return json
+
+
 # ── Main function ─────────────────────────────────────────────────────────────
 
 def check_facts_with_ai(
