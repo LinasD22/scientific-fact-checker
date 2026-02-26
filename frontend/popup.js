@@ -52,3 +52,30 @@ function autoCheck() {
 
 }
 
+const exportBtn = document.getElementById("exportBtn");
+
+exportBtn.addEventListener("click", exportLogs);
+
+async function exportLogs() {
+
+  const data = await chrome.storage.local.get("factLogs");
+
+  const logs = data.factLogs || [];
+
+  if (logs.length === 0) {
+    alert("No logs to export.");
+    return;
+  }
+
+  const jsonString = JSON.stringify(logs, null, 2);
+
+  const blob = new Blob([jsonString], { type: "application/json" });
+
+  const url = URL.createObjectURL(blob);
+
+  chrome.downloads.download({
+    url: url,
+    filename: "fact_check_logs.json",
+    conflictAction: "uniquify"
+  });
+}
