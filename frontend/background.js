@@ -38,29 +38,42 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "FACT_CHECK") {
 
     checkFact(request.claim)
-      .then(result => sendResponse(result))
-      .catch(() => sendResponse({
-        verdict: "Error",
-        explanation: "Fact check failed."
-      }));
+      .then(async (result) => {
 
-    return true; // Required for async
+        await storeLogEntry(request.claim, result, "success");
+        sendResponse(result);
+
+      })
+      .catch(async (error) => {
+
+        const errorResult = {
+          verdict: "Error",
+          explanation: "Fact check failed: " + (error?.message || "Unknown error.")
+        };
+
+        await storeLogEntry(request.claim, errorResult, "error");
+        sendResponse(errorResult);
+
+      });
+
+    return true;
   }
+
 });
 
 
 async function checkFact(claim) {
 
-  const API_KEY = "YOUR_OPENAI_KEY"; // Replace with your key
+  const API_KEY = "YOUR_KEY";
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetch("https://api.yourAI.com/v1/responses", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${API_KEY}`
     },
     body: JSON.stringify({
-      model: "gpt-4.1-mini",
+      model: "1.0",
       input: `
       Determine if the following claim is TRUE, FALSE, or UNCERTAIN.
       Respond strictly in JSON format like:
@@ -80,4 +93,22 @@ async function checkFact(claim) {
   const textOutput = data.output[0].content[0].text;
 
   return JSON.parse(textOutput);
+}
+
+async function storeLogEntry(claim, result, status) {
+
+  const entry = {
+    timestamp: new Date().toISOString(),
+    claim: claim,
+    verdict: result.verdict,
+    explanation: result.explanation,
+    status: status
+  };
+
+  const data = await chrome.storage.local.get("factLogs");
+  const logs = data.factLogs || [];
+
+  logs.push(entry);
+
+  await chrome.storage.local.set({ factLogs: logs });
 }

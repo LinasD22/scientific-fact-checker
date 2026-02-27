@@ -4,10 +4,11 @@
   "description": "Check facts instantly using AI or APIs.",
   "version": "1.0",
 
-  "permissions": [
+"permissions": [
   "storage",
   "activeTab",
-  "contextMenus"
+  "contextMenus",
+  "downloads"
 ],
 
   "background": {
