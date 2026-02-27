@@ -23,6 +23,7 @@ class FactCheckWork:
     abstract: str | None
     full_text: str | None
     download_url: str | None
+    citation_count: int | None = None
 
 
 @dataclass
@@ -68,6 +69,7 @@ class FactCheckerService:
             individual_results.append({
                 "source_title": source.get("title", "Unknown"),
                 "source_url": source.get("url"),
+                "citations": source.get("citations", []),
                 "published_date": source.get("published_date"),
                 "pinecone_score": source.get("score"),
                 "source_text": source.get("text", ""),  # ← originalus tekstas
@@ -97,6 +99,7 @@ class FactCheckerService:
                 abstract=w.get("abstract"),
                 full_text=w.get("fullText"),
                 download_url=w.get("downloadUrl"),
+                citation_count=w.get("citationCount"),
             )
             for w in raw_works
         ]
@@ -107,6 +110,7 @@ class FactCheckerService:
             {
                 "text": w.full_text or w.abstract or "",
                 "title": w.title,
+                "citations": w.citation_count,
             }
             for w in works_with_text
         ]
@@ -125,6 +129,7 @@ class FactCheckerService:
                     "title": s["title"],
                     "url": None,
                     "score": s["score"],
+                    "citations": s.get("citations"),
                 }
                 for s in snippets
             ]
@@ -139,6 +144,7 @@ class FactCheckerService:
                         "title": work.title,
                         "url": work.download_url,
                         "published_date": work.published_date,
+                        "citations": work.citation_count,
                     })
 
         # Step 4: AI fact-checking

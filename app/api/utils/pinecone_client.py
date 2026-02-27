@@ -48,12 +48,14 @@ class PineconeClient:
             if not text:
                 continue
 
+            citations = work.get("citations")
             chunks = self.splitter.split_text(text)
             for chunk_i, chunk in enumerate(chunks):
                 records.append({
                     "id": f"{session_id}_{work_i}_{chunk_i}",
                     "chunk_text": chunk,
                     "source": title,
+                    "citations": citations,
                 })
 
         return records
@@ -103,6 +105,7 @@ class PineconeClient:
                     "source": fields.get("source", "Unknown"),
                     "title": fields.get("source", "Unknown"),
                     "score": round(score, 4),
+                    "citations": fields.get("citations"),
                 })
                 if len(snippets) >= top_k:
                     break
