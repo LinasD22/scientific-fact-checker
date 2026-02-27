@@ -20,6 +20,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
+from api.controllers.fact_check import router as fact_check_router
 
 import psutil
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -103,7 +104,7 @@ class ModelManager:
     def _load(self, model_path: Path) -> Llama:
         return Llama(
             model_path=str(model_path),
-            n_ctx=4096,
+            n_ctx=16384,
             n_threads=psutil.cpu_count(logical=True),
             n_gpu_layers=-1,
             verbose=False,
@@ -178,7 +179,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+app.include_router(fact_check_router)
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():

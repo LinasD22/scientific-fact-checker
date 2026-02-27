@@ -113,6 +113,7 @@ class FactCheckerService:
         snippets = self.pinecone_client.search_snippets_from_texts(
             claim=original_claim,
             works=works_for_pinecone,
+            top_k=6
         )
 
         # Step 3: Pinecone snippets or fallback to full texts

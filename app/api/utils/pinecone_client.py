@@ -26,7 +26,7 @@ class PineconeClient:
         self.namespace = os.getenv("PINECONE_NAMESPACE", "pdf-vault")
         self.min_score = float(os.getenv("PINECONE_MIN_SCORE", "0.3"))
         self.chunk_size = int(os.getenv("PINECONE_CHUNK_SIZE", "800"))
-        self.chunk_overlap = int(os.getenv("PINECONE_CHUNK_OVERLAP", "50"))
+        self.chunk_overlap = int(os.getenv("PINECONE_CHUNK_OVERLAP", "100"))
 
         self.pc = Pinecone(api_key=self.api_key)
         self.index = self.pc.Index(self.index_name)
@@ -74,31 +74,38 @@ class PineconeClient:
         results = self.index.search_records(
             namespace=ns,
             query={
-                "top_k": top_k,
+                "top_k": top_k * 3,  # daugiau kandidatų reranker'iui
                 "inputs": {"text": query},
             },
             rerank={
                 "model": "bge-reranker-v2-m3",
-                "top_n": top_k,
+                "top_n": top_k * 2,  # reranker grąžina daugiau nei reikia, deduplikuosime
                 "rank_fields": ["chunk_text"],
             },
         )
 
+        seen_texts = set()
         snippets = []
         for hit in results.get("result", {}).get("hits", []):
             score = hit.get("_score", 0.0)
             fields = hit.get("fields", {})
+            text = fields.get("chunk_text", "")
 
             if score < threshold:
                 logging.warning(f"Hit score: {score:.3f} below threshold: {threshold} | {fields.get('source', '')}")
+            elif text in seen_texts:
+                logging.info(f"Skipping duplicate chunk | {fields.get('source', '')}")
             else:
                 logging.info(f"Hit score: {score:.3f} | {fields.get('source', '')}")
+                seen_texts.add(text)
                 snippets.append({
-                    "text": fields.get("chunk_text", ""),
+                    "text": text,
                     "source": fields.get("source", "Unknown"),
                     "title": fields.get("source", "Unknown"),
                     "score": round(score, 4),
                 })
+                if len(snippets) >= top_k:
+                    break
 
         return snippets
 

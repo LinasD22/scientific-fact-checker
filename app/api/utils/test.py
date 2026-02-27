@@ -9,14 +9,14 @@ from dotenv import load_dotenv
 
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-load_dotenv(Path(__file__).parent.parent.parent / ".env")  # ← nuskaito app/.env
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
 logging.basicConfig(level=logging.INFO)
 
 from api.services.fact_checker import create_fact_checker
 
 service = create_fact_checker()
 
-# Test 1: Pinecone snippet paieška
+"""
 print("=== Test 1: Pinecone snippet search ===")
 snippets = service.pinecone_client.search_snippets_for_claim(
     claim="Are migraines a leading cause of disability?",
@@ -25,18 +25,20 @@ snippets = service.pinecone_client.search_snippets_for_claim(
 print(f"Snippets found: {len(snippets)}")
 for s in snippets:
     print(f"  [{s['score']:.3f}] {s['source']}: {s['text'][:100]}...")
+"""
 
-# Test 2: Pilnas pipeline su Pinecone
-print("\n=== Test 2: Full pipeline (Core API → Pinecone → AI) ===")
+claim1 = "Migraines are a leading cause of disability worldwide"
+claim2 = "Vaccines cause autism"
+
 result = service.check_claim(
-    original_claim="Migraines are a leading cause of disability worldwide.", # pvz Vaccines cause autism
-    limit=3,
+    original_claim=claim1, # pvz Vaccines cause autism
+    limit=4,
 )
+print(f"Original claim:  {result.original_claim}")
 print(f"Works searched:  {result.works_searched}")
 print(f"Works with text: {result.works_with_text}")
 print(f"Snippets used:   {result.snippets_used}")
 print(f"Final verdict:   {result.final_verdict}")
-print(f"Consensus:       {result.consensus}")
 print(f"Agreement score: {result.agreement_score}")
 print(f"Summary:         {result.summary}")
 
