@@ -4,9 +4,39 @@ Based on the provided example: https://api.core.ac.uk/v3/search/works
 """
 
 import os
-from typing import Any
+import time
+from functools import wraps
+from typing import Any, Callable, TypeVar
 
 import requests
+
+T = TypeVar('T')
+
+
+def with_retry(max_retries: int = 5, initial_delay: float = 1.0, backoff_factor: float = 2.0):
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> T:
+            delay = initial_delay
+            last_exception = None
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except (requests.RequestException, requests.HTTPError) as e:
+                    last_exception = e
+                    if attempt < max_retries:
+                        time.sleep(delay)
+                        delay *= backoff_factor
+                    else:
+                        break
+            
+            if last_exception:
+                raise last_exception
+            return None
+        
+        return wrapper
+    return decorator
 
 
 class CoreAPIClient:
@@ -27,6 +57,7 @@ class CoreAPIClient:
             "Content-Type": "application/json"
         }
     
+    @with_retry(max_retries=3, initial_delay=1.0, backoff_factor=2.0)
     def search_works(
         self,
         query: str,
@@ -66,6 +97,7 @@ class CoreAPIClient:
         
         return response.json()
     
+    @with_retry(max_retries=3, initial_delay=1.0, backoff_factor=2.0)
     def get_work_details(self, work_id: int) -> dict[str, Any]:
         """
         Get detailed information about a specific work.
@@ -102,6 +134,8 @@ class CoreAPIClient:
         """
         results = self.search_works(query=query, limit=limit)
         
+        if results is None:
+            return []
         works = []
         for item in results.get("results", []):
             work = {
