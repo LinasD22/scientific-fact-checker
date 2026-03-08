@@ -73,6 +73,7 @@ mistralai==1.12.4
 mpmath==1.3.0
 MyApplication==0.1.0
 networkx==3.6.1
+nltk
 numpy==2.4.2
 openai==2.23.0
 opentelemetry-api==1.39.1

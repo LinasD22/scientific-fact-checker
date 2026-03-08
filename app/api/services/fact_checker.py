@@ -13,6 +13,7 @@ from typing import Any
 from api.utils.ai_calls import AICallClient, FactCheckResponse, check_facts_with_ai
 from api.utils.core_api_client import CoreAPIClient
 from api.utils.pinecone_client import PineconeClient
+from api.utils.synonym_expander import expand_query
 
 
 @dataclass
@@ -87,6 +88,7 @@ class FactCheckerService:
         limit: int = 1,
     ) -> FactCheckResult:
         search_query = query or original_claim
+        search_query = expand_query(search_query)
 
         # Step 1: Search Core API
         raw_works = self.core_client.search_and_get_fulltext(query=search_query, limit=limit)
