@@ -12,7 +12,7 @@ from typing import Any
 
 from api.utils.ai_calls import AICallClient, FactCheckResponse, check_facts_with_ai
 from api.utils.core_api_client import CoreAPIClient
-from api.utils.pinecone_client import PineconeClient
+from api.utils.qdrant_vector_client import QdrantVectorClient
 
 
 @dataclass
@@ -46,15 +46,15 @@ class FactCheckerService:
         self,
         core_api_key: str | None = None,
         ai_api_key: str | None = None,
-        pinecone_api_key: str | None = None,
+        pinecone_api_key: str | None = None,  # kept for backwards compatibility
         ai_base_url: str | None = None,
     ):
         self.core_client = CoreAPIClient(api_key=core_api_key)
         self.ai_client = AICallClient(api_key=ai_api_key, base_url=ai_base_url)
-        self.pinecone_client = PineconeClient(api_key=pinecone_api_key)
+        self.vector_embed_client = QdrantVectorClient()
 
     def _get_snippets_for_claim(self, claim: str, top_k: int = 5) -> list[dict[str, Any]]:
-        return self.pinecone_client.search_snippets_for_claim(claim=claim, top_k=top_k)
+        return self.vector_embed_client.search_snippets_for_claim(claim=claim, top_k=top_k)
 
     def _format_individual_results(
         self,
@@ -110,7 +110,7 @@ class FactCheckerService:
             }
             for w in works_with_text
         ]
-        snippets = self.pinecone_client.search_snippets_from_texts(
+        snippets = self.vector_embed_client.search_snippets_from_texts(
             claim=original_claim,
             works=works_for_pinecone,
         )

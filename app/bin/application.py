@@ -2,6 +2,7 @@ import logging
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 load_dotenv(Path(__file__).parent.parent.parent / ".env")  # nuskaito app/.env
@@ -14,6 +15,14 @@ app = FastAPI(
     title="Scientific Fact Checker API",
     description="AI-powered fact-checking against academic papers",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include fact-check routes
