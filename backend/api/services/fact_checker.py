@@ -140,6 +140,34 @@ class FactCheckerService:
                         "published_date": work.published_date,
                     })
 
+            # No Core texts: try direct search in existing Pinecone namespace.
+            if not source_texts:
+                direct_snippets = self._get_snippets_for_claim(claim=original_claim, top_k=limit)
+                source_texts = [
+                    {
+                        "text": s.get("text", ""),
+                        "title": s.get("title", "Unknown"),
+                        "url": None,
+                        "score": s.get("score"),
+                    }
+                    for s in direct_snippets
+                    if s.get("text")
+                ]
+
+        if not source_texts:
+            return FactCheckResult(
+                original_claim=original_claim,
+                works_searched=len(works),
+                works_with_text=len(works_with_text),
+                snippets_used=0,
+                individual_results=[],
+                sorted_results=[],
+                consensus=None,
+                final_verdict="unverifiable",
+                summary="No source texts found from Core API or Pinecone for this claim.",
+                agreement_score=0.0,
+            )
+
         # Step 4: AI fact-checking
         individual_responses, comparison = check_facts_with_ai(
             original_claim=original_claim,
