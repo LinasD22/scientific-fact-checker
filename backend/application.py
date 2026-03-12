@@ -32,4 +32,4 @@ app.include_router(fact_check_router, prefix="/api", tags=["fact-check"])
 
 if __name__ == "__main__":
     # TODO remove and just call from terminal
-    os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 127.0.0.1 --port 9000")
+    s.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8000")
