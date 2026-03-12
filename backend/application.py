@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
 
 # nuskaito app/.env
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,9 +19,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include fact-check routes
 app.include_router(fact_check_router, prefix="/api", tags=["fact-check"])
 
 if __name__ == "__main__":
     # TODO remove and just call from terminal
-    os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 127.0.0.1 --port 9000")
+    s.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8000")

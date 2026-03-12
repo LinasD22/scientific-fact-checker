@@ -50,7 +50,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 
 async function checkFact(claim) {
-  const response = await fetch("http://127.0.0.1:9000/api/fact-check/search", {
+  //"http://manoapi.ddns.net:8000/api/fact-check/search"
+  //"http://127.0.0.1:9000/api/fact-check/search"
+  const response = await fetch("http://manoapi.ddns.net:8000/api/fact-check/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
