@@ -4,6 +4,7 @@ const claimInput = document.getElementById("claimInput");
 const resultBox = document.getElementById("resultBox");
 const verdictText = document.getElementById("verdict");
 const explanationText = document.getElementById("explanation");
+const scoreText = document.getElementById("score");
 
 
 // Load selected text automatically
@@ -28,6 +29,7 @@ function autoCheck() {
 
   verdictText.textContent = "Checking...";
   explanationText.textContent = "";
+  scoreText.textContent = "";
   resultBox.classList.remove("hidden");
 
 
@@ -46,6 +48,7 @@ function autoCheck() {
 
       verdictText.textContent = response.verdict;
       explanationText.textContent = response.explanation;
+      scoreText.textContent = `Agreement score: ${Number(response.score ?? 0).toFixed(2)}`;
 
     }
   );

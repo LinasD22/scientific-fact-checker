@@ -37,6 +37,7 @@ async def fact_check_with_search(
         service = create_fact_checker()
 
         #TODO uncomment when we want to preprocess
+
         # preprocessing_json = fact_preprocess(claim)
         # if preprocessing_json["is_health_related"] == "false":
         if False:
@@ -52,17 +53,11 @@ async def fact_check_with_search(
             )
         else:
 
-            print("\n=== Full pipeline (Core API → Pinecone → AI) ===")
             result = service.check_claim(
                 original_claim=claim,
                 limit=LIMIT,
             )
 
-            print(f"Works searched:  {result.works_searched}")
-            print(f"Works with text: {result.works_with_text}")
-            print(f"Snippets used:   {result.snippets_used}")
-            print(f"Final verdict:   {result.final_verdict}")
-            print(f"Consensus:       {result.consensus}")
             print(f"Agreement score: {result.agreement_score}")
             print(f"Summary:         {result.summary}")
 

@@ -74,7 +74,19 @@ button:hover {
   margin-bottom: 5px;
 }
 
+#explanation {
+  max-height: 120px;
+  overflow-y: auto;
+  word-break: break-word;
+}
+
 .hidden {
   display: none;
+}
+
+.debug-log {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #6b7280;
 }
 
