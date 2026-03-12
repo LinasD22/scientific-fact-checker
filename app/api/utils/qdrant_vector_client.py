@@ -43,7 +43,7 @@ _EMBED_BATCH_SIZE = 128
 _UPSERT_BATCH_SIZE = 256   # Qdrant local file — larger batch = fewer syscalls
 _THREAD_POOL_SIZE  = 8     # for parallel _is_cached scroll lookups
 
-
+# ------ Reikia cargo ir rustc iš: https://rustup.rs/
 class QdrantVectorClient:
     """Persistent local Qdrant client for searching scientific text snippets.
 
@@ -99,7 +99,6 @@ class QdrantVectorClient:
         return len(vec)
 
     # ── Collection setup ───────────────────────────────────────────────────────
-
     def _ensure_collection(self) -> None:
         existing = [c.name for c in self.client.get_collections().collections]
         if COLLECTION not in existing:
