@@ -90,3 +90,77 @@ button:hover {
   color: #6b7280;
 }
 
+.resultCard {
+  background: white;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+  text-align: center;
+}
+
+.scoreRingContainer {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin: auto;
+}
+
+.progressRing {
+  transform: rotate(-90deg);
+}
+
+.ringTrack {
+  fill: none;
+  stroke: #e5e7eb;
+  stroke-width: 10;
+}
+
+.ringProgress {
+  fill: none;
+  stroke: url(#ringGradient);
+  stroke-width: 10;
+  stroke-linecap: round;
+
+  stroke-dasharray: 377;
+  stroke-dashoffset: 377;
+
+  transition: stroke-dashoffset 0.8s ease;
+}
+
+.scoreCenter {
+  position: absolute;
+
+  top: 50%;
+  left: 50%;
+
+  transform: translate(-50%, -50%);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#scoreValue {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.scoreLabel {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.resultText {
+  margin-top: 10px;
+}
+
+.verdict {
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.explanation {
+  font-size: 13px;
+  color: #4b5563;
+}
