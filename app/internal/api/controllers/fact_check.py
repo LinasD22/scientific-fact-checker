@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import Body, APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from api.services.fact_checker import FactCheckerService, create_fact_checker
+from app.internal.api.services.fact_checker import FactCheckerService, create_fact_checker
 
 router = APIRouter()
 

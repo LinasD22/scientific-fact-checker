@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 load_dotenv(Path(__file__).parent.parent.parent / ".env")  # ← nuskaito app/.env
 logging.basicConfig(level=logging.INFO)
 
-from api.services.fact_checker import create_fact_checker
-from api.utils.ai_calls import fact_preprocess
+from app.internal.api.services.fact_checker import create_fact_checker
+from app.internal.api.utils.ai_calls import fact_preprocess
 
 
 claim="Migraines are a leading cause of disability worldwide.", # pvz Vaccines cause autism
