@@ -46,7 +46,7 @@ function autoCheck() {
 		scoreText.textContent = "Error";
         return;
       }
-		score = 60;
+	  score = response.score;
       verdictText.textContent = response.verdict;
       explanationText.textContent = response.explanation;
       scoreText.textContent = `Agreement score: ${Number(score ?? 0).toFixed(2)}`;
