@@ -3,7 +3,7 @@ API endpoints for the fact checker plugin.
 """
 
 from typing import Annotated
-
+from api.utils.ai_calls import fact_preprocess
 from fastapi import Body, APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
@@ -13,6 +13,7 @@ router = APIRouter()
 
 _fact_checker: FactCheckerService | None = None
 
+LIMIT=3
 
 def get_fact_checker() -> FactCheckerService:
     global _fact_checker
@@ -23,11 +24,7 @@ def get_fact_checker() -> FactCheckerService:
 
 @router.post("/fact-check/search")
 async def fact_check_with_search(
-    claim: Annotated[str, Body(description="The fact/claim to verify")],
-    query: Annotated[str | None, Body(description="Search query for Core API")] = None,
-    limit: Annotated[int, Body(description="Number of papers to search", ge=1, le=10)] = 3,
-    core_api_key: Annotated[str | None, Body(description="Override Core API key")] = None,
-    ai_api_key: Annotated[str | None, Body(description="Override AI API key")] = None,
+    claim: Annotated[str, Body(embed=True, description="The fact/claim to verify")],
 ) -> JSONResponse:
     """
     Full pipeline:
@@ -37,27 +34,44 @@ async def fact_check_with_search(
     4. Return combined verdict
     """
     try:
-        service = (
-            create_fact_checker(core_api_key=core_api_key, ai_api_key=ai_api_key)
-            if core_api_key or ai_api_key
-            else get_fact_checker()
-        )
+        service = create_fact_checker()
 
-        result = service.check_claim(
-            original_claim=claim,
-            query=query,
-            limit=limit,
-        )
+        #TODO uncomment when we want to preprocess
+
+        # preprocessing_json = fact_preprocess(claim)
+        # if preprocessing_json["is_health_related"] == "false":
+        if False:
+            print("\n\n")
+            print("This fact is not related to health.")
+            print("\n\n")
+
+            print(f"Justification:\n\t{preprocessing_json["justification"]}")
+
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"detail": "Fact is not health related"},
+            )
+        else:
+
+            result = service.check_claim(
+                original_claim=claim,
+                limit=LIMIT,
+            )
+
+            print(f"Agreement score: {result.agreement_score}")
+            print(f"Summary:         {result.summary}")
+
+            # print("\nIndividual results:")
+            # for r in result.individual_results:
+            #     score = f"[pinecone: {r['pinecone_score']:.3f}]" if r['pinecone_score'] else ""
+            #     print(f"  {score} {r['source_title']}: {r['result']} (confidence: {r['confidence']})")
+            #     print(f"Source snippet: {r['source_text']}")
+            #     print(f"Explanation: { r['explanation']}")
+
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
-                "original_claim": result.original_claim,
-                "works_searched": result.works_searched,
-                "works_with_text": result.works_with_text,
-                "snippets_used": result.snippets_used,
-                "individual_results": result.individual_results,
-                "sorted_results": result.sorted_results,
                 "consensus": result.consensus,
                 "final_verdict": result.final_verdict,
                 "summary": result.summary,

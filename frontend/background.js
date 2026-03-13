@@ -50,34 +50,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 
 async function checkFact(claim) {
-
-  const API_KEY = "YOUR_OPENAI_KEY"; // Replace with your key
-
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  //"http://manoapi.ddns.net:8000/api/fact-check/search"
+  //"http://127.0.0.1:9000/api/fact-check/search"
+  const response = await fetch("http://manoapi.ddns.net:8000/api/fact-check/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${API_KEY}`
     },
     body: JSON.stringify({
-      model: "gpt-4.1-mini",
-      input: `
-      Determine if the following claim is TRUE, FALSE, or UNCERTAIN.
-      Respond strictly in JSON format like:
-      {
-        "verdict": "...",
-        "explanation": "..."
-      }
-
-      Claim: ${claim}
-      `
+      claim: claim
     })
   });
 
   const data = await response.json();
 
-  // Extract structured output safely
-  const textOutput = data.output[0].content[0].text;
-
-  return JSON.parse(textOutput);
+  return {
+    verdict: data.final_verdict ?? "unverifiable",
+    explanation: data.summary ?? "",
+    score: typeof data.agreement_score === "number" ? data.agreement_score : 0,
+  };
 }

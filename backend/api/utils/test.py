@@ -14,7 +14,7 @@ from app.internal.api.services.fact_checker import create_fact_checker
 from app.internal.api.utils.ai_calls import fact_preprocess
 
 
-claim="Migraines are a leading cause of disability worldwide.", # pvz Vaccines cause autism
+claim="Migraines are a leading cause of disability worldwide." # pvz Vaccines cause autism
 
 
 

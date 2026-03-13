@@ -81,13 +81,16 @@ def _call_mistral(system_prompt: str, user_prompt: str) -> str:
     from mistralai import Mistral
     client = Mistral(api_key=os.getenv("MISTRAL_API_KEY", ""))
     response = client.chat.complete(
-        model=os.getenv("MISTRAL_MODEL", "mistral-large-latest"),
+        model=os.getenv("MISTRAL_MODEL", "mistral-small-2506"),
         messages=[{"role": "system", "content": system_prompt},
                   {"role": "user",   "content": user_prompt}],
         temperature=0.2,
         max_tokens=2000,
     )
-    return response.choices[0].message.content
+    raw_content = response.choices[0].message.content
+    if isinstance(raw_content, list):
+        return "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_content)
+    return raw_content or ""
 
 
 def _call_gemini(system_prompt: str, user_prompt: str) -> str:
@@ -141,9 +144,14 @@ class AICallClient:
         source_texts: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Single combined call - fact-checks all sources and returns comparison."""
+        # Truncate each source to stay under model context (e.g. Mistral 128k tokens)
+        max_chars_per_source = int(os.getenv("AI_MAX_CHARS_PER_SOURCE", "30000"))
         sources_text = ""
         for i, source in enumerate(source_texts, 1):
-            sources_text += f"\nSource {i} - {source.get('title', 'Unknown')}:\n{source.get('text', '')}\n"
+            text = source.get("text", "") or ""
+            if len(text) > max_chars_per_source:
+                text = text[:max_chars_per_source] + "\n[...truncated]"
+            sources_text += f"\nSource {i} - {source.get('title', 'Unknown')}:\n{text}\n"
 
         system_prompt = """You are a scientific fact-checking assistant.
 Analyze claims against provided source texts and respond ONLY with valid JSON. No extra text."""

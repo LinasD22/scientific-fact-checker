@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>MediCheck</title>
 
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
@@ -22,6 +22,54 @@
       Check Fact
     </button>
 
+	
+
+	<div class="resultCard">
+
+  <div class="scoreRingContainer">
+
+    <svg class="progressRing" width="140" height="140">
+
+      <defs>
+        <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#22c55e"/>
+          <stop offset="100%" stop-color="#3b82f6"/>
+        </linearGradient>
+      </defs>
+
+      <circle
+        class="ringTrack"
+        cx="70"
+        cy="70"
+        r="60"
+      ></circle>
+
+      <circle
+        class="ringProgress"
+        cx="70"
+        cy="70"
+        r="60"
+      ></circle>
+
+    </svg>
+
+    <div class="scoreCenter">
+      <span id="scoreValue">0</span>
+      <span class="scoreLabel">Score</span>
+    </div>
+
+  </div>
+
+  <div class="resultText">
+
+    <div id="verdict" class="verdict"></div>
+
+    <div id="explanation" class="explanation"></div>
+
+  </div>
+
+</div>
+
     <div id="resultBox" class="hidden">
 
       <h3>Result</h3>
@@ -29,6 +77,8 @@
       <p id="verdict"></p>
 
       <p id="explanation"></p>
+
+      <p id="score"></p>
 
     </div>
 
