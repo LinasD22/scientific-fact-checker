@@ -10,3 +10,4 @@
 /__pycache__/
 *.pyc
 /app/api/server/models/
+.env

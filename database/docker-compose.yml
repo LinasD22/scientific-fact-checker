@@ -1,0 +1,44 @@
+services:
+  db:
+    image: mariadb:10.11
+    restart: always
+    environment:
+      MYSQL_DATABASE: fact_checker_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: K630
+      MYSQL_ROOT_PASSWORD: K630_2
+    volumes:
+      - mariadb_data:/var/lib/mysql  # keeps data alive after container restarts
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    env_file:
+      - .env
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./app:/app
+    ports:
+      - "8000:8000"  
+    depends_on:
+      db:
+        condition: service_healthy
+
+  #phpmyadmin:
+    # image: phpmyadmin
+    # container_name: phpmyadmin
+    # restart: always
+    # ports:
+    #   - "8080:80"
+    # environment:
+    #   - PMA_HOST=db
+    #   - MYSQL_ROOT_PASSWORD=K630_2 
+    # depends_on:
+    #   - db
+
+volumes:
+  mariadb_data: {}
