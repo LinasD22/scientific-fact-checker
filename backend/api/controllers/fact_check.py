@@ -7,7 +7,7 @@ from api.utils.ai_calls import fact_preprocess
 from fastapi import Body, APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from app.internal.api.services.fact_checker import FactCheckerService, create_fact_checker
+from api.services.fact_checker import FactCheckerService, create_fact_checker
 
 router = APIRouter()
 
