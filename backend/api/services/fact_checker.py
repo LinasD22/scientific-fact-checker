@@ -124,13 +124,20 @@ class FactCheckerService:
         query: str,
         limit_per_db: int = 3
     ) -> tuple[list[dict[str, Any]], list[str], str | None]:
-        """Search both Core and PubMed databases in parallel."""
+        """Search both Core and PubMed databases in parallel.
+        
+        Uses expanded query for Core API (handles complex boolean queries),
+        and original query for PubMed (simpler is better for their API).
+        """
         databases_queried = []
         partial_failure = None
         
+        # Expand query for Core (handles complex OR syntax well)
+        expanded_query = expand_query(query)
+        
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_to_db = {
-                executor.submit(self._search_core, query, limit_per_db): "core",
+                executor.submit(self._search_core, expanded_query, limit_per_db): "core",
                 executor.submit(self._search_pubmed, query, limit_per_db): "pubmed"
             }
             
@@ -188,10 +195,9 @@ class FactCheckerService:
         limit: int = 1,
     ) -> FactCheckResult:
         search_query = query or original_claim
-        # Step 0: Expand query with synonyms
-        search_query = expand_query(search_query)
 
         # Step 1: Search Core API and PubMed in parallel
+        # (expansion happens inside - expanded for Core, original for PubMed)
         unique_works, databases_queried, partial_failure = self.search_multiple_databases(
             query=search_query,
             limit_per_db=limit
