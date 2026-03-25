@@ -50,7 +50,6 @@ class FactCheckerService:
         self,
         core_api_key: str | None = None,
         ai_api_key: str | None = None,
-        pinecone_api_key: str | None = None,  # kept for backwards compatibility
         ai_base_url: str | None = None,
         pubmed_api_key: str | None = None,
     ):
@@ -59,8 +58,6 @@ class FactCheckerService:
         self.ai_client = AICallClient(api_key=ai_api_key, base_url=ai_base_url)
         self.vector_embed_client = QdrantVectorClient()
 
-    def _get_snippets_for_claim(self, claim: str, top_k: int = 5) -> list[dict[str, Any]]:
-        return self.vector_embed_client.search_snippets_for_claim(claim=claim, top_k=top_k)
 
     def _search_core(self, query: str, limit: int) -> tuple[list[dict[str, Any]], str | None]:
         """Search Core API and return works with source identification."""
@@ -177,7 +174,8 @@ class FactCheckerService:
                 "source_title": source.get("title", "Unknown"),
                 "source_url": source.get("url"),
                 "published_date": source.get("published_date"),
-                "pinecone_score": source.get("score"),
+                "qdrant_score": source.get("score"),
+                "rerank_score": source.get("rerank_score"),
                 "source_text": source.get("text", ""),  # ← originalus tekstas
                 "is_verified": res.is_verified,
                 "confidence": res.confidence,
@@ -192,12 +190,106 @@ class FactCheckerService:
         self,
         original_claim: str,
         query: str | None = None,
-        limit: int = 1,
+        limit: int = 3,
+        global_search_threshold: float = 0.45,
+        global_min_results: int = 2,
     ) -> FactCheckResult:
         search_query = query or original_claim
 
-        # Step 1: Search Core API and PubMed in parallel
-        # (expansion happens inside - expanded for Core, original for PubMed)
+        # ── Step 1: Bandyk global Qdrant search (greita, be API calls) ──────────
+        global_snippets = self.vector_embed_client.search_global(
+            claim=original_claim,
+            top_k=limit,
+            min_score=global_search_threshold,
+        )
+
+        if len(global_snippets) >= global_min_results:
+            logging.info(
+                f"Global search rado {len(global_snippets)} snippetų — "
+                f"praleižiame API calls."
+            )
+            source_texts = [
+                {
+                    "text": s["text"],
+                    "title": s["title"],
+                    "url": None,
+                    "score": s["score"],
+                }
+                for s in global_snippets
+            ]
+            # Grąžinam rezultatą be API calls
+            individual_responses, comparison = check_facts_with_ai(
+                original_claim=original_claim,
+                source_texts=source_texts,
+                ai_client=self.ai_client,
+            )
+            return FactCheckResult(
+                original_claim=original_claim,
+                works_searched=0,
+                works_with_text=0,
+                snippets_used=len(source_texts),
+                individual_results=self._format_individual_results(
+                    individual_responses, source_texts
+                ),
+                sorted_results=comparison.sorted_results,
+                consensus=comparison.consensus.value if comparison.consensus else None,
+                final_verdict=comparison.final_verdict.value,
+                summary=comparison.summary,
+                agreement_score=comparison.agreement_score,
+            )
+
+        logging.info(
+            f"Global search rado tik {len(global_snippets)} — "
+            f"fallback į lazy indexing."
+        )
+
+        # ── Step 1: Bandyk global Qdrant search (greita, be API calls) ──────────
+        global_snippets = self.vector_embed_client.search_global(
+            claim=original_claim,
+            top_k=limit,
+            min_score=global_search_threshold,
+        )
+
+        if len(global_snippets) >= global_min_results:
+            logging.info(
+                f"Global search rado {len(global_snippets)} snippetų — "
+                f"praleižiame API calls."
+            )
+            source_texts = [
+                {
+                    "text": s["text"],
+                    "title": s["title"],
+                    "url": None,
+                    "score": s["score"],
+                }
+                for s in global_snippets
+            ]
+            # Grąžinam rezultatą be API calls
+            individual_responses, comparison = check_facts_with_ai(
+                original_claim=original_claim,
+                source_texts=source_texts,
+                ai_client=self.ai_client,
+            )
+            return FactCheckResult(
+                original_claim=original_claim,
+                works_searched=0,
+                works_with_text=0,
+                snippets_used=len(source_texts),
+                individual_results=self._format_individual_results(
+                    individual_responses, source_texts
+                ),
+                sorted_results=comparison.sorted_results,
+                consensus=comparison.consensus.value if comparison.consensus else None,
+                final_verdict=comparison.final_verdict.value,
+                summary=comparison.summary,
+                agreement_score=comparison.agreement_score,
+            )
+
+        logging.info(
+            f"Global search rado tik {len(global_snippets)} — "
+            f"fallback į lazy indexing."
+        )
+
         unique_works, databases_queried, partial_failure = self.search_multiple_databases(
             query=search_query,
             limit_per_db=limit
@@ -215,20 +307,22 @@ class FactCheckerService:
         ]
         works_with_text = [w for w in works if w.full_text or w.abstract]
 
-        # Step 2: Chunk Core API texts and search Pinecone for best snippets
-        works_for_pinecone = [
+
+        works_for_qdrant = [
             {
                 "text": w.full_text or w.abstract or "",
                 "title": w.title,
             }
             for w in works_with_text
         ]
+        # Step 2: Chunk, embed and search for best snippets using qdrant
         snippets = self.vector_embed_client.search_snippets_from_texts(
             claim=original_claim,
-            works=works_for_pinecone,
+            works=works_for_qdrant,
+            top_k=20,
         )
 
-        # Step 3: Pinecone snippets or fallback to full texts
+        # Step 3: Qdrant snippets or fallback to full texts
         if snippets:
             logging.warning("NAUDOJAMI SNIPPETS")
             source_texts = [
@@ -253,20 +347,6 @@ class FactCheckerService:
                         "published_date": work.published_date,
                     })
 
-            # No Core texts: try direct search in existing Pinecone namespace.
-            if not source_texts:
-                direct_snippets = self._get_snippets_for_claim(claim=original_claim, top_k=limit)
-                source_texts = [
-                    {
-                        "text": s.get("text", ""),
-                        "title": s.get("title", "Unknown"),
-                        "url": None,
-                        "score": s.get("score"),
-                    }
-                    for s in direct_snippets
-                    if s.get("text")
-                ]
-
         if not source_texts:
             return FactCheckResult(
                 original_claim=original_claim,
@@ -277,7 +357,7 @@ class FactCheckerService:
                 sorted_results=[],
                 consensus=None,
                 final_verdict="unverifiable",
-                summary="No source texts found from Core API or Pinecone for this claim.",
+                summary="No source texts found from Core API or Qdrant for this claim.",
                 agreement_score=0.0,
             )
 
@@ -329,14 +409,14 @@ class FactCheckerService:
 def create_fact_checker(
     core_api_key: str | None = None,
     ai_api_key: str | None = None,
-    pinecone_api_key: str | None = None,
+    qdrant_api_key: str | None = None,
     ai_base_url: str | None = None,
     pubmed_api_key: str | None = None,
 ) -> FactCheckerService:
     return FactCheckerService(
         core_api_key=core_api_key,
         ai_api_key=ai_api_key,
-        pinecone_api_key=pinecone_api_key,
+        qdrant_api_key=qdrant_api_key,
         ai_base_url=ai_base_url,
         pubmed_api_key=pubmed_api_key,
     )

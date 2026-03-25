@@ -52,7 +52,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function checkFact(claim) {
   //"http://manoapi.ddns.net:8000/api/fact-check/search"
   //"http://127.0.0.1:9000/api/fact-check/search"
-  const response = await fetch("http://manoapi.ddns.net:8000/api/fact-check/search", {
+  //https://api.healthfactchecker.site/api/fact-check/search
+  const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+  const response = await fetch("https://api.healthfactchecker.site/api/fact-check/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
