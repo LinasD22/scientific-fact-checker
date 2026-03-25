@@ -10,6 +10,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from api.utils.ai_calls import AICallClient, FactCheckResponse, check_facts_with_ai
@@ -119,6 +120,99 @@ class FactCheckerService:
         
         return unique_works
 
+    def _get_years_ago(self, published_date: str | None) -> float | None:
+        """Calculate years ago from published date. Returns None if date is invalid."""
+        if not published_date:
+            return None
+        
+        try:
+            # Try parsing various date formats
+            for fmt in ["%Y-%m-%d", "%Y-%m", "%Y"]:
+                try:
+                    pub_date = datetime.strptime(published_date[:10] if len(published_date) >= 10 else published_date, fmt)
+                    break
+                except ValueError:
+                    continue
+            else:
+                return None
+            
+            # Use current time in UTC
+            current_date = datetime.now(timezone.utc)
+            
+            # Handle naive dates (assume UTC)
+            if pub_date.tzinfo is None:
+                pub_date = pub_date.replace(tzinfo=timezone.utc)
+            
+            # Calculate years difference
+            days_diff = (current_date - pub_date).days
+            if days_diff < 0:
+                return 0  # Future dates treated as 0 years ago
+            
+            return days_diff / 365.25
+        except (ValueError, TypeError, OSError):
+            return None
+
+    def _prioritize_works_by_age(
+        self, 
+        works: list[dict[str, Any]], 
+        target_count: int
+    ) -> list[dict[str, Any]]:
+        """Prioritize works by age: <2 years > <5 years > any.
+        
+        Args:
+            works: List of works with published_date field
+            target_count: Desired number of works to return
+            
+        Returns:
+            Prioritized list of works
+        """
+        if not works or target_count <= 0:
+            return []
+        
+        current_year = 2026  # Current year from environment
+        
+        # Categorize works by age
+        less_than_2_years = []
+        less_than_5_years = []
+        older_or_unknown = []
+        
+        for work in works:
+            years_ago = self._get_years_ago(work.get("published_date"))
+            
+            if years_ago is None:
+                # Unknown date - put in fallback category
+                older_or_unknown.append(work)
+            elif years_ago < 2:
+                less_than_2_years.append(work)
+            elif years_ago < 5:
+                less_than_5_years.append(work)
+            else:
+                older_or_unknown.append(work)
+        
+        # Build prioritized result
+        prioritized = []
+        
+        # First, add all <2 year old papers
+        prioritized.extend(less_than_2_years)
+        
+        # If we need more, add <5 year old papers
+        if len(prioritized) < target_count:
+            remaining_needed = target_count - len(prioritized)
+            prioritized.extend(less_than_5_years[:remaining_needed])
+        
+        # If we still need more, add older/unknown papers
+        if len(prioritized) < target_count:
+            remaining_needed = target_count - len(prioritized)
+            prioritized.extend(older_or_unknown[:remaining_needed])
+        
+        logging.info(
+            f"Paper age prioritization: {len(less_than_2_years)} <2yo, "
+            f"{len(less_than_5_years)} <5yo, {len(older_or_unknown)} older/unknown. "
+            f"Returning {len(prioritized)} papers."
+        )
+        
+        return prioritized
+
     def search_multiple_databases(
         self,
         query: str,
@@ -162,7 +256,14 @@ class FactCheckerService:
         unique_works = self._deduplicate_works(all_works)
         logging.info(f"Total unique works after deduplication: {len(unique_works)}")
         
-        return unique_works, databases_queried, partial_failure
+        # Prioritize papers by age: <2 years > <5 years > any
+        # Multiply limit by 2 to get enough candidates for prioritization
+        prioritized_works = self._prioritize_works_by_age(
+            works=unique_works, 
+            target_count=limit_per_db * 2
+        )
+        
+        return prioritized_works, databases_queried, partial_failure
 
     def _format_individual_results(
         self,
