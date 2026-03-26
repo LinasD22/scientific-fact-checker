@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-load_dotenv(Path(__file__).parent.parent.parent / ".env")  # ← nuskaito app/.env
+load_dotenv(Path(__file__).parent.parent.parent / ".env")  # ← nuskaito app/..env
 logging.basicConfig(level=logging.INFO)
 
 from api.services.fact_checker import create_fact_checker
@@ -20,9 +20,9 @@ claim="Migraines are a leading cause of disability worldwide." # pvz Vaccines ca
 
 service = create_fact_checker()
 
-# # Test 1: Pinecone snippet paieška
-# print("=== Test 1: Pinecone snippet search ===")
-# snippets = service.pinecone_client.search_snippets_for_claim(
+#    # Test 1: Qdrant snippet paieška
+    # print("=== Test 1: Qdrant snippet search ===")
+    # snippets = service.qdrant_client.search_snippets_for_claim(
 #     claim="Are migraines a leading cause of disability?",
 #     top_k=3,
 # )
@@ -43,11 +43,11 @@ if preprocessing_json["is_health_related"] == "false":
     print(f"Justification:\n\t{preprocessing_json["justification"]}")
 
 else:
-    # Test 2: Pilnas pipeline su Pinecone
-    print("\n=== Test 2: Full pipeline (Core API → Pinecone → AI) ===")
+    # Test 2: Pilnas pipeline su Qdrant
+    print("\n=== Test 2: Full pipeline (Core API → Qdrant → AI) ===")
     result = service.check_claim(
         original_claim=claim, # pvz Vaccines cause autism
-        limit=3,
+        limit=5,
     )
 
     print(f"Works searched:  {result.works_searched}")
@@ -60,7 +60,8 @@ else:
 
     print("\nIndividual results:")
     for r in result.individual_results:
-        score = f"[pinecone: {r['pinecone_score']:.3f}]" if r['pinecone_score'] else ""
-        print(f"  {score} {r['source_title']}: {r['result']} (confidence: {r['confidence']})")
+        score = f"[qdrant score: {r['qdrant_score']:.3f}]" if r['qdrant_score'] else ""
+        rerank_score = r["rerank_score"]
+        print(f"  {score}\n rerank_score: {rerank_score}\n {r['source_title']}: {r['result']} (confidence: {r['confidence']})")
         print(f"Source snippet: {r['source_text']}")
         print(f"Explanation: { r['explanation']}")

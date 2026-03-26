@@ -5,7 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 
-# nuskaito app/.env
+# nuskaito app/..env
 sys.path.insert(0, str(Path(__file__).parent.parent))
 load_dotenv(Path(__file__).parent / ".env")  # nuskaito app/.env
 
@@ -31,5 +31,4 @@ app.add_middleware(
 app.include_router(fact_check_router, prefix="/api", tags=["fact-check"])
 
 if __name__ == "__main__":
-    # TODO remove and just call from terminal
-    s.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8000")
+    os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8080")

@@ -29,7 +29,7 @@ async def fact_check_with_search(
     """
     Full pipeline:
     1. Search Core API for relevant academic papers
-    2. Search Pinecone for high-relevance snippets
+    2. Search Qdrant for high-relevance snippets
     3. Use AI to fact-check snippets against the claim
     4. Return combined verdict
     """
@@ -63,7 +63,7 @@ async def fact_check_with_search(
 
             # print("\nIndividual results:")
             # for r in result.individual_results:
-            #     score = f"[pinecone: {r['pinecone_score']:.3f}]" if r['pinecone_score'] else ""
+            #     score = f"[qdrant: {r['qdrant_score']:.3f}]" if r['qdrant_score'] else ""
             #     print(f"  {score} {r['source_title']}: {r['result']} (confidence: {r['confidence']})")
             #     print(f"Source snippet: {r['source_text']}")
             #     print(f"Explanation: { r['explanation']}")
@@ -106,7 +106,7 @@ async def fact_check_with_texts(
     ai_api_key: Annotated[str | None, Body(description="Override AI API key")] = None,
 ) -> JSONResponse:
     """
-    Check a claim against provided texts (no Core API or Pinecone search).
+    Check a claim against provided texts (no Core API or Qdrant search).
     """
     try:
         service = (
