@@ -18,17 +18,20 @@ function injectPanel() {
   document.body.appendChild(container);
 
   const style = document.createElement("style");
+  // Inside your injectPanel function in panel.js
+
   style.textContent = `
     #factCheckerContainer {
       position: fixed;
       top: 20px;
       right: 20px;
       width: 360px;
-      height: 200px; /* Initial small height */
+      max-height: 600px; /* Prevents the panel from being taller than the screen */
+      height: 200px; 
       z-index: 2147483647;
       background: white;
       border-radius: 16px;
-      overflow: hidden;
+      overflow: hidden; /* Keep hidden so the internal container handles the scroll */
       box-shadow: 0 10px 25px rgba(0,0,0,0.2);
       border: 1px solid #e2e8f0;
       transition: height 0.3s ease-in-out; 

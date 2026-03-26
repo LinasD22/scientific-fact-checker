@@ -293,6 +293,8 @@ button:disabled {
   color: #f8f8f2;
   padding: 10px;
   border-radius: 8px;
-  overflow-x: auto;
+  max-height: 200px; /* Limit height */
+  overflow: auto;    /* Enable both horizontal and vertical scroll */
   text-align: left;
+  white-space: pre-wrap; /* Wraps text so it doesn't just go off-screen */
 }
