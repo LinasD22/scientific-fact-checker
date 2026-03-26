@@ -1,2 +1,3 @@
 django
 mysqlclient
+bcrypt>=4.1.2

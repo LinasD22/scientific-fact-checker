@@ -31,6 +31,16 @@ class FactCheckWork:
 
 
 @dataclass
+class ArticleInfo:
+    """Information about a scientific article used in fact-checking."""
+    title: str
+    published_date: str | None
+    authors: str | None  # Author information if available
+    source: str | None  # "core" or "pubmed"
+    url: str | None
+
+
+@dataclass
 class FactCheckResult:
     """Final fact-check result combining all sources."""
     original_claim: str
@@ -43,6 +53,7 @@ class FactCheckResult:
     final_verdict: str
     summary: str
     agreement_score: float
+    articles_used: list[ArticleInfo]  # List of articles used for fact-checking
 
 
 class FactCheckerService:
@@ -69,9 +80,21 @@ class FactCheckerService:
             raw_works = self.core_client.search_and_get_fulltext(query=query, limit=limit)
             works = []
             for w in raw_works:
+                # Extract authors from various possible fields
+                authors = None
+                if w.get("authors"):
+                    author_list = w.get("authors", [])
+                    if isinstance(author_list, list):
+                        authors = ", ".join([a.get("name", "") for a in author_list if a.get("name")])
+                    elif isinstance(author_list, str):
+                        authors = author_list
+                elif w.get("creator"):
+                    authors = w.get("creator")
+                
                 work = {
                     "title": w.get("title", "Untitled"),
                     "published_date": w.get("publishedDate"),
+                    "authors": authors,
                     "abstract": w.get("abstract"),
                     "full_text": w.get("fullText"),
                     "download_url": w.get("downloadUrl"),
@@ -93,6 +116,7 @@ class FactCheckerService:
                 work = {
                     "title": w.get("title", "Untitled"),
                     "published_date": w.get("published_date"),
+                    "authors": w.get("authors"),  # PubMed client should provide authors
                     "abstract": w.get("abstract"),
                     "full_text": w.get("full_text"),
                     "download_url": f"https://www.ncbi.nlm.nih.gov/pmc/articles/{w.get('pmc_id', '')}",
@@ -380,6 +404,7 @@ class FactCheckerService:
                 final_verdict="unverifiable",
                 summary="No source texts found from Core API or Pinecone for this claim.",
                 agreement_score=0.0,
+                articles_used=[],  # No articles used when no source texts found
             )
 
         # Step 4: AI fact-checking
@@ -388,6 +413,17 @@ class FactCheckerService:
             source_texts=source_texts,
             ai_client=self.ai_client,
         )
+
+        # Build list of articles used from unique_works (original search results)
+        articles_used = []
+        for work in unique_works:
+            articles_used.append(ArticleInfo(
+                title=work.get("title", "Untitled"),
+                published_date=work.get("published_date"),
+                authors=work.get("authors"),
+                source=work.get("source"),
+                url=work.get("download_url"),
+            ))
 
         return FactCheckResult(
             original_claim=original_claim,
@@ -400,6 +436,7 @@ class FactCheckerService:
             final_verdict=comparison.final_verdict.value,
             summary=comparison.summary,
             agreement_score=comparison.agreement_score,
+            articles_used=articles_used,
         )
 
     def check_claim_with_texts(
@@ -424,6 +461,7 @@ class FactCheckerService:
             final_verdict=comparison.final_verdict.value,
             summary=comparison.summary,
             agreement_score=comparison.agreement_score,
+            articles_used=[],  # No search-based articles for texts-only check
         )
 
 

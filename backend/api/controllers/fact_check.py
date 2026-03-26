@@ -76,6 +76,16 @@ async def fact_check_with_search(
                 "final_verdict": result.final_verdict,
                 "summary": result.summary,
                 "agreement_score": result.agreement_score,
+                "articles_used": [
+                    {
+                        "title": article.title,
+                        "published_date": article.published_date,
+                        "authors": article.authors,
+                        "source": article.source,
+                        "url": article.url,
+                    }
+                    for article in result.articles_used
+                ],
             },
         )
 
