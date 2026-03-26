@@ -116,6 +116,11 @@ button:disabled {
   text-align: center;
   border: 1px solid var(--border-color);
   transition: opacity 0.3s ease, transform 0.3s ease;
+  /* Add this temporarily to your CSS */
+  display: block !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
 }
 
 .resultCard.hidden {
@@ -204,4 +209,73 @@ button:disabled {
 .explanation::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 4px;
+}
+
+.resultHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: #e2e8f0;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  margin: 15px 0;
+}
+
+.evidence-section summary {
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--primary);
+  margin-bottom: 8px;
+}
+
+.articles-container {
+  text-align: left;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.article-item {
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.article-item:last-child { border: none; }
+
+.article-title {
+  font-size: 13px;
+  font-weight: 600;
+  display: block;
+  color: var(--text-main);
+  text-decoration: none;
+}
+
+.article-title:hover { text-decoration: underline; }
+
+.article-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.debug-section pre {
+  font-size: 10px;
+  background: #272822;
+  color: #f8f8f2;
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  text-align: left;
 }

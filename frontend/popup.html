@@ -30,22 +30,36 @@
 </div>
 
     <div id="resultCard" class="resultCard hidden">
-      <div class="scoreRingContainer">
-        <svg class="progressRing" width="120" height="120">
-          <circle class="ringTrack" cx="60" cy="60" r="52"></circle>
-          <circle id="ringProgress" class="ringProgress" cx="60" cy="60" r="52"></circle>
-        </svg>
-        <div class="scoreCenter">
-          <span id="scoreValue">0</span>
-          <span class="scoreLabel">Score</span>
-        </div>
-      </div>
-
-      <div class="resultText">
-        <div id="finalVerdict" class="verdict"></div>
-        <div id="finalExplanation" class="explanation"></div>
-      </div>
+  <div class="scoreRingContainer">
+    <svg class="progressRing" width="120" height="120">
+      <circle class="ringTrack" cx="60" cy="60" r="52"></circle>
+      <circle id="ringProgress" class="ringProgress" cx="60" cy="60" r="52"></circle>
+    </svg>
+    <div class="scoreCenter">
+      <span id="scoreValue">0</span>
+      <span class="scoreLabel">Agreement</span>
     </div>
+  </div>
+
+  <div class="resultHeader">
+    <div id="finalVerdict" class="verdict"></div>
+    <div id="consensusBadge" class="badge"></div>
+  </div>
+  
+  <div id="finalExplanation" class="explanation"></div>
+
+  <hr class="divider">
+
+  <details class="evidence-section">
+    <summary>Sources Used (<span id="sourceCount">0</span>)</summary>
+    <div id="articlesList" class="articles-container"></div>
+  </details>
+
+  <details class="debug-section">
+    <summary>Raw JSON Response</summary>
+    <pre id="rawResponse"></pre>
+  </details>
+</div>
 
   </div>
   <script src="popup.js"></script>

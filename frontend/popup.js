@@ -38,25 +38,50 @@ function autoCheck() {
 
   chrome.runtime.sendMessage(
     { type: "FACT_CHECK", claim: claim },
-    (response) => {
-      checkBtn.disabled = false;
-      btnText.textContent = "Check Fact";
+    // ... inside your chrome.runtime.sendMessage callback ...
+(response) => {
+    checkBtn.disabled = false;
+    btnText.textContent = "Check Fact";
+    resultCard.classList.remove("hidden");
 
-      if (!response || response.verdict === "Error") {
-        resultCard.classList.remove("hidden");
-        document.getElementById("finalVerdict").textContent = "Error";
-        document.getElementById("finalExplanation").textContent = "Failed to reach service.";
-        updateScoreRing(0);
-      } else {
-        resultCard.classList.remove("hidden");
-        document.getElementById("finalVerdict").textContent = response.verdict;
-        document.getElementById("finalExplanation").textContent = response.explanation;
-        updateScoreRing(response.score || 0);
-      }
-      
-      // Expand panel to fit results
-      setTimeout(sendHeight, 100);
+    // 1. Basic Info
+    document.getElementById("finalVerdict").textContent = response.verdict;
+    document.getElementById("finalExplanation").textContent = response.explanation;
+    document.getElementById("consensusBadge").textContent = response.consensus || "N/A";
+    
+    // 2. Score Ring
+    updateScoreRing(response.score || 0);
+
+    // 3. Populate Articles
+    const articlesList = document.getElementById("articlesList");
+    const sourceCount = document.getElementById("sourceCount");
+    articlesList.innerHTML = ""; // Clear old results
+
+    if (response.articles_used && response.articles_used.length > 0) {
+        sourceCount.textContent = response.articles_used.length;
+        
+        response.articles_used.forEach(article => {
+            const item = document.createElement("div");
+            item.className = "article-item";
+            item.innerHTML = `
+                <a href="${article.url}" target="_blank" class="article-title">${article.title}</a>
+                <div class="article-meta">
+                    ${article.source} • ${article.published_date || 'Date Unknown'}
+                </div>
+            `;
+            articlesList.appendChild(item);
+        });
+    } else {
+        sourceCount.textContent = "0";
+        articlesList.innerHTML = "<p class='article-meta'>No specific articles cited.</p>";
     }
+
+    // 4. Raw Debug for Testing
+    document.getElementById("rawResponse").textContent = JSON.stringify(response, null, 2);
+
+    // 5. Adjust Panel Height
+    setTimeout(sendHeight, 100);
+}
   );
 }
 
