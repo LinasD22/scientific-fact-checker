@@ -50,7 +50,7 @@ function autoCheck() {
     document.getElementById("consensusBadge").textContent = response.consensus || "N/A";
     
     // 2. Score Ring
-    updateScoreRing(response.score || 0);
+    updateScoreRing(response.score * 100 || 0);
 
     // 3. Populate Articles
     const articlesList = document.getElementById("articlesList");

@@ -131,11 +131,6 @@ button:disabled {
   text-align: center;
   border: 1px solid var(--border-color);
   transition: opacity 0.3s ease, transform 0.3s ease;
-  /* Add this temporarily to your CSS */
-  display: block !important;
-  opacity: 1 !important;
-  transform: none !important;
-}
 }
 
 .resultCard.hidden {
