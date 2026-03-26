@@ -300,7 +300,7 @@ class FactCheckerService:
                 "source_url": source.get("url"),
                 "published_date": source.get("published_date"),
                 "qdrant_score": source.get("score"),
-                "rerank_score": source.get("rerank_score"),
+                "rerank_score": source.get("rerank_score"),  # May be None if not available
                 "source_text": source.get("text", ""),  # ← originalus tekstas
                 "is_verified": res.is_verified,
                 "confidence": res.confidence,
@@ -361,53 +361,7 @@ class FactCheckerService:
                 final_verdict=comparison.final_verdict.value,
                 summary=comparison.summary,
                 agreement_score=comparison.agreement_score,
-            )
-
-        logging.info(
-            f"Global search rado tik {len(global_snippets)} — "
-            f"fallback į lazy indexing."
-        )
-
-        # ── Step 1: Bandyk global Qdrant search (greita, be API calls) ──────────
-        global_snippets = self.vector_embed_client.search_global(
-            claim=original_claim,
-            top_k=limit,
-            min_score=global_search_threshold,
-        )
-
-        if len(global_snippets) >= global_min_results:
-            logging.info(
-                f"Global search rado {len(global_snippets)} snippetų — "
-                f"praleižiame API calls."
-            )
-            source_texts = [
-                {
-                    "text": s["text"],
-                    "title": s["title"],
-                    "url": None,
-                    "score": s["score"],
-                }
-                for s in global_snippets
-            ]
-            # Grąžinam rezultatą be API calls
-            individual_responses, comparison = check_facts_with_ai(
-                original_claim=original_claim,
-                source_texts=source_texts,
-                ai_client=self.ai_client,
-            )
-            return FactCheckResult(
-                original_claim=original_claim,
-                works_searched=0,
-                works_with_text=0,
-                snippets_used=len(source_texts),
-                individual_results=self._format_individual_results(
-                    individual_responses, source_texts
-                ),
-                sorted_results=comparison.sorted_results,
-                consensus=comparison.consensus.value if comparison.consensus else None,
-                final_verdict=comparison.final_verdict.value,
-                summary=comparison.summary,
-                agreement_score=comparison.agreement_score,
+                articles_used=[],  # No search-based articles for global search path
             )
 
         logging.info(

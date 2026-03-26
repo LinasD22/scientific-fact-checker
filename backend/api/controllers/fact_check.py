@@ -133,6 +133,7 @@ async def fact_check_with_texts(
                 "final_verdict": result.final_verdict,
                 "summary": result.summary,
                 "agreement_score": result.agreement_score,
+                "articles_used": [],  # No articles for texts-only check
             },
         )
 
