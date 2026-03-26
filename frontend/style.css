@@ -29,9 +29,24 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  height: max-content; /* Force container to hug content */
+  max-height: 550px; /* Limits the total height of the popup */
+  overflow-y: auto;   /* Adds a scrollbar to the whole container if needed */
+  overflow-x: hidden;
 }
 
+/* Custom Scrollbar Styling for a cleaner look */
+.container::-webkit-scrollbar, 
+.explanation::-webkit-scrollbar, 
+.articles-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.container::-webkit-scrollbar-thumb, 
+.explanation::-webkit-scrollbar-thumb, 
+.articles-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
 header {
   display: flex;
   align-items: center;
@@ -194,9 +209,10 @@ button:disabled {
   font-size: 13.5px;
   line-height: 1.5;
   color: var(--text-muted);
-  max-height: 140px;
-  overflow-y: auto;
-  padding-right: 4px;
+  max-height: 120px; /* Limits explanation height */
+  overflow-y: auto;   /* Enables scroll for long text */
+  padding-right: 8px;
+  text-align: left;
 }
 
 /* Scrollbar styling for explanation */
@@ -244,8 +260,9 @@ button:disabled {
 
 .articles-container {
   text-align: left;
-  max-height: 200px;
-  overflow-y: auto;
+  max-height: 180px; /* Limits sources height */
+  overflow-y: auto;   /* Enables scroll for many articles */
+  padding-right: 5px;
 }
 
 .article-item {
