@@ -426,6 +426,16 @@ class FactCheckerService:
         ]
         works_with_text = [w for w in works if w.full_text or w.abstract]
 
+        # Create lookup from unique_works to get metadata by title
+        unique_works_lookup = {}
+        for w in unique_works:
+            title = w.get("title", "Untitled")
+            unique_works_lookup[title.lower().strip()] = {
+                "authors": w.get("authors"),
+                "published_date": w.get("published_date"),
+                "source": w.get("source", "unknown"),
+                "url": w.get("download_url"),
+            }
 
         works_for_qdrant = [
             {
@@ -434,12 +444,15 @@ class FactCheckerService:
             }
             for w in works_with_text
         ]
+        
         # Step 2: Chunk, embed and search for best snippets using qdrant
-        # Build metadata map for storing article info in Qdrant
+        # Build metadata map for storing article info in Qdrant (with authors from unique_works)
         works_metadata = {}
         for w in works_with_text:
+            title_key = w.title.lower().strip()
+            work_meta = unique_works_lookup.get(title_key, {})
             works_metadata[w.title] = {
-                "authors": None,  # Will be populated from unique_works when building articles_used
+                "authors": work_meta.get("authors"),
                 "published_date": w.published_date,
                 "url": w.download_url,
             }
@@ -450,52 +463,41 @@ class FactCheckerService:
             top_k=20,
             works_metadata=works_metadata,
         )
-        
-        # Step 3: Build articles_used from the original unique_works
-        # Group snippets by article title to build proper article list
-        seen_titles = {}
-        articles_used = []
-        for idx, work in enumerate(unique_works):
-            title = work.get("title", "Untitled")
-            title_key = title.lower().strip()
-            if title_key not in seen_titles:
-                seen_titles[title_key] = len(articles_used)
-                articles_used.append(ArticleInfo(
-                    title=title,
-                    published_date=work.get("published_date"),
-                    authors=work.get("authors"),
-                    source=work.get("source", "unknown"),
-                    url=work.get("download_url"),
-                    index=seen_titles[title_key],
-                ))
-        
-        # Create article_index_map for linking snippets to articles
-        article_index_map = {title.lower().strip(): idx for title, idx in seen_titles.items()}
 
         # Step 3: Qdrant snippets or fallback to full texts
         if snippets:
             logging.warning("NAUDOJAMI SNIPPETS")
-            source_texts = [
-                {
+            source_texts = []
+            used_titles = set()  # Track which works actually provided snippets
+            for s in snippets:
+                title_key = s["title"].lower().strip()
+                work_meta = unique_works_lookup.get(title_key, {})
+                source_texts.append({
                     "text": s["text"],
                     "title": s["title"],
-                    "url": None,
+                    "url": work_meta.get("url"),  # Get URL from lookup
                     "score": s["score"],
-                }
-                for s in snippets
-            ]
+                    "published_date": s.get("published_date"),
+                    "authors": work_meta.get("authors"),
+                })
+                used_titles.add(title_key)
         else:
             logging.warning("NAUDOJAMI FULL TEXT")
             source_texts = []
+            used_titles = set()
             for work in works_with_text:
                 text = work.full_text or work.abstract or ""
                 if text:
+                    title_key = work.title.lower().strip()
+                    work_meta = unique_works_lookup.get(title_key, {})
                     source_texts.append({
                         "text": text,
                         "title": work.title,
                         "url": work.download_url,
                         "published_date": work.published_date,
+                        "authors": work_meta.get("authors"),
                     })
+                    used_titles.add(title_key)
 
         if not source_texts:
             return FactCheckResult(
@@ -509,10 +511,28 @@ class FactCheckerService:
                 final_verdict="unverifiable",
                 summary="No source texts found from Core API or Qdrant for this claim.",
                 agreement_score=0.0,
-                articles_used=[],  # No articles used when no source texts found
+                articles_used=[],
             )
 
-        # Step 4: AI fact-checking
+        # Step 4: Build articles_used ONLY from works that actually provided snippets
+        articles_used = []
+        seen_titles = {}
+        for title_key in used_titles:
+            work_meta = unique_works_lookup.get(title_key, {})
+            articles_used.append(ArticleInfo(
+                title=next((w.title for w in works_with_text if w.title.lower().strip() == title_key), title_key.title()),
+                published_date=work_meta.get("published_date"),
+                authors=work_meta.get("authors"),
+                source=work_meta.get("source", "unknown"),
+                url=work_meta.get("url"),
+                index=len(articles_used),
+            ))
+            seen_titles[title_key] = len(articles_used) - 1
+        
+        # Create article_index_map for linking snippets to articles
+        article_index_map = {title.lower().strip(): idx for title, idx in seen_titles.items()}
+
+        # Step 5: AI fact-checking
         individual_responses, comparison = check_facts_with_ai(
             original_claim=original_claim,
             source_texts=source_texts,
