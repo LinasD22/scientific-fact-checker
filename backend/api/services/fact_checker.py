@@ -409,14 +409,12 @@ class FactCheckerService:
 def create_fact_checker(
     core_api_key: str | None = None,
     ai_api_key: str | None = None,
-    qdrant_api_key: str | None = None,
     ai_base_url: str | None = None,
     pubmed_api_key: str | None = None,
 ) -> FactCheckerService:
     return FactCheckerService(
         core_api_key=core_api_key,
         ai_api_key=ai_api_key,
-        qdrant_api_key=qdrant_api_key,
         ai_base_url=ai_base_url,
         pubmed_api_key=pubmed_api_key,
     )
