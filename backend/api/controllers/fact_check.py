@@ -69,13 +69,14 @@ async def fact_check_with_search(
             #     print(f"Explanation: { r['explanation']}")
 
 
-        return JSONResponse(
+            return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "consensus": result.consensus,
                 "final_verdict": result.final_verdict,
                 "summary": result.summary,
                 "agreement_score": result.agreement_score,
+                "individual_results": result.individual_results,
                 "articles_used": [
                     {
                         "title": article.title,
@@ -83,6 +84,7 @@ async def fact_check_with_search(
                         "authors": article.authors,
                         "source": article.source,
                         "url": article.url,
+                        "index": article.index,
                     }
                     for article in result.articles_used
                 ],

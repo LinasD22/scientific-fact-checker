@@ -38,6 +38,7 @@ class ArticleInfo:
     authors: str | None  # Author information if available
     source: str | None  # "core" or "pubmed"
     url: str | None
+    index: int  # Index to link with individual_results
 
 
 @dataclass
@@ -290,13 +291,22 @@ class FactCheckerService:
         self,
         individual_responses: list[FactCheckResponse],
         source_texts: list[dict[str, Any]],
+        article_index_map: dict[str, int] | None = None,
     ) -> list[dict[str, Any]]:
-        """Format individual AI responses with their source texts."""
+        """Format individual AI responses with their source texts.
+        
+        Args:
+            individual_responses: AI responses for each source
+            source_texts: The source texts used
+            article_index_map: Optional mapping from title to article index
+        """
         individual_results = []
         for i, res in enumerate(individual_responses):
             source = source_texts[i] if i < len(source_texts) else {}
-            individual_results.append({
-                "source_title": source.get("title", "Unknown"),
+            source_title = source.get("title", "Unknown")
+            
+            result_dict = {
+                "source_title": source_title,
                 "source_url": source.get("url"),
                 "published_date": source.get("published_date"),
                 "qdrant_score": source.get("score"),
@@ -308,7 +318,13 @@ class FactCheckerService:
                 "explanation": res.explanation,
                 "supporting_evidence": res.supporting_evidence,
                 "contradicting_evidence": res.contradicting_evidence,
-            })
+            }
+            
+            # Add article index if mapping is provided
+            if article_index_map and source_title in article_index_map:
+                result_dict["article_index"] = article_index_map[source_title]
+            
+            individual_results.append(result_dict)
         return individual_results
 
     def check_claim(
@@ -449,22 +465,30 @@ class FactCheckerService:
         )
 
         # Build list of articles used from unique_works (original search results)
+        # Create a mapping from title to article index for linking
+        article_index_map: dict[str, int] = {}
         articles_used = []
-        for work in unique_works:
+        for idx, work in enumerate(unique_works):
+            title = work.get("title", "Untitled")
             articles_used.append(ArticleInfo(
-                title=work.get("title", "Untitled"),
+                title=title,
                 published_date=work.get("published_date"),
                 authors=work.get("authors"),
                 source=work.get("source"),
                 url=work.get("download_url"),
+                index=idx,
             ))
+            # Map title to index (case-insensitive for matching)
+            article_index_map[title.lower().strip()] = idx
 
         return FactCheckResult(
             original_claim=original_claim,
             works_searched=len(works),
             works_with_text=len(works_with_text),
             snippets_used=len(source_texts),
-            individual_results=self._format_individual_results(individual_responses, source_texts),
+            individual_results=self._format_individual_results(
+                individual_responses, source_texts, article_index_map
+            ),
             sorted_results=comparison.sorted_results,
             consensus=comparison.consensus.value if comparison.consensus else None,
             final_verdict=comparison.final_verdict.value,
