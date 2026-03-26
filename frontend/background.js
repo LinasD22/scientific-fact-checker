@@ -39,8 +39,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function checkFact(claim) {
-  // CHANGED TO HTTPS: Prevents Mixed Content blocks on secure sites
-  const response = await fetch("https://manoapi.ddns.net:8000/api/fact-check/search", {
+    //https://api.healthfactchecker.site/api/fact-check/search
+  const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+  const response = await fetch("https://api.healthfactchecker.site/api/fact-check/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ claim: claim })
