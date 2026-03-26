@@ -68,6 +68,37 @@ document.getElementById("finalExplanation").textContent = response.explanation;
     const sourceCount = document.getElementById("sourceCount");
     articlesList.innerHTML = ""; // Clear old results
 
+    // naujas - Po articles bloko, pridėk Sources & Evidence sekciją
+    const evidenceList = document.getElementById("evidenceList");
+    if (evidenceList) {
+        evidenceList.innerHTML = "";
+
+        if (response.individual_results && response.individual_results.length > 0) {
+            response.individual_results.forEach((r, i) => {
+                const verdict = r.result || "unverifiable";
+                const verdictClass = verdict.includes("verified") ? "true"
+                    : verdict === "false" ? "false" : "uncertain";
+
+                const item = document.createElement("div");
+                item.className = "evidence-item";
+                item.innerHTML = `
+                    <div class="evidence-header">
+                        <span class="evidence-title">${r.source_title || "Unknown source"}</span>
+                        <span class="verdict ${verdictClass}" style="font-size:11px; padding:2px 6px">${verdict}</span>
+                    </div>
+                    <div class="evidence-snippet">"${r.source_text || ""}"</div>
+                    <div class="evidence-explanation">${r.explanation || ""}</div>
+                    ${r.supporting_evidence?.length ? `<div class="evidence-tag support">✓ ${r.supporting_evidence[0]}</div>` : ""}
+                    ${r.contradicting_evidence?.length ? `<div class="evidence-tag contra">✗ ${r.contradicting_evidence[0]}</div>` : ""}
+                `;
+                evidenceList.appendChild(item);
+            });
+        } else {
+            evidenceList.innerHTML = "<p class='article-meta'>No evidence details available.</p>";
+        }
+    }
+    //
+
     if (response.articles_used && response.articles_used.length > 0) {
         sourceCount.textContent = response.articles_used.length;
         

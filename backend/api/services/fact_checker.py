@@ -253,7 +253,7 @@ class FactCheckerService:
         
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_to_db = {
-                executor.submit(self._search_core, expanded_query, limit_per_db): "core",
+                #executor.submit(self._search_core, expanded_query, limit_per_db): "core",
                 executor.submit(self._search_pubmed, query, limit_per_db): "pubmed"
             }
             
@@ -332,8 +332,8 @@ class FactCheckerService:
         original_claim: str,
         query: str | None = None,
         limit: int = 3,
-        global_search_threshold: float = 0.45,
-        global_min_results: int = 2,
+        global_search_threshold: float = 0.65,
+        global_min_results: int = 10,
     ) -> FactCheckResult:
         search_query = query or original_claim
 

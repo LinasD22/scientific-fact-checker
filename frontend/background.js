@@ -54,7 +54,8 @@ async function checkFact(claim) {
     explanation: data.summary ?? "",
     score: typeof data.agreement_score === "number" ? data.agreement_score : 0,
     consensus: data.consensus ?? "N/A", // Added this
-    articles_used: data.articles_used ?? [] // Added this
+    articles_used: data.articles_used ?? [], // Added this
+    individual_results: data.individual_results ?? [] // papildomai
   };
 }
 

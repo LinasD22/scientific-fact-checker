@@ -289,3 +289,45 @@ button:disabled {
   text-align: left;
   white-space: pre-wrap; /* Wraps text so it doesn't just go off-screen */
 }
+
+/*new*/
+.evidence-item {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    background: var(--bg-secondary, #f8f9fa);
+}
+.evidence-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.evidence-title {
+    font-weight: 600;
+    font-size: 12px;
+    flex: 1;
+    margin-right: 8px;
+}
+.evidence-snippet {
+    font-size: 11px;
+    color: #555;
+    font-style: italic;
+    border-left: 3px solid #ccc;
+    padding-left: 8px;
+    margin: 6px 0;
+    line-height: 1.4;
+}
+.evidence-explanation {
+    font-size: 12px;
+    margin-top: 4px;
+}
+.evidence-tag {
+    font-size: 11px;
+    margin-top: 4px;
+    padding: 2px 0;
+}
+.evidence-tag.support { color: #2e7d32; }
+.evidence-tag.contra  { color: #c62828; }
+/*new*/

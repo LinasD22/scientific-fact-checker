@@ -11,3 +11,4 @@
 *.pyc
 /app/api/server/models/
 .env
+/backend/qdrant_cache/

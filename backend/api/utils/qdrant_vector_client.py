@@ -72,7 +72,7 @@ class QdrantVectorClient:
             "RERANKER_MODEL",
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
         )
-        self.min_score     = float(os.getenv("QDRANT_MIN_SCORE",      "0.3"))
+        self.min_score     = float(os.getenv("QDRANT_MIN_SCORE",      "0.65"))
         self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE", "-5.0"))
         self.chunk_size    = int(os.getenv("QDRANT_CHUNK_SIZE",       "800"))
         self.chunk_overlap = int(os.getenv("QDRANT_CHUNK_OVERLAP",    "50"))
