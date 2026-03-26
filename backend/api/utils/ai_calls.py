@@ -170,7 +170,7 @@ Respond ONLY with this JSON structure:
     "consensus": "verified" or "partially_verified" or "false" or "unverifiable" or "conflicting" or null,
     "final_verdict": "verified" or "partially_verified" or "false" or "unverifiable" or "conflicting",
     "summary": "Brief summary of findings across all sources",
-    "agreement_score": 0.0-1.0
+    "agreement_score": 0.0 to 1.0 (1.0 = 100% all sources agree, 0.5 = 50% agree, 0.0 = complete disagreement)
 }}
 
 sorted_results must be sorted by confidence (highest first)."""
