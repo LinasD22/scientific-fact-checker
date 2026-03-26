@@ -56,7 +56,7 @@ class PubMedAPIClient:
         Initialize the PubMed API client.
         
         Args:
-            api_key: NCBI API key for higher rate limits. Defaults to env var PUBMED_API_KEY.
+            api_key: NCBI API key for higher rate limits. Defaults to .env var PUBMED_API_KEY.
         """
         self.api_key = api_key or os.getenv("PUBMED_API_KEY", "")
     

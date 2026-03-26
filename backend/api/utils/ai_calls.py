@@ -1,6 +1,6 @@
 """
 AI call methods for fact-checking.
-Supports multiple providers via AI_PROVIDER env variable:
+Supports multiple providers via AI_PROVIDER .env variable:
   - local    (default) - local LLM server via HTTP
   - openai             - OpenAI API
   - mistral            - Mistral API
@@ -45,38 +45,6 @@ class ComparisonResult:
     agreement_score: float
 
 
-# ── Provider implementations ──────────────────────────────────────────────────
-
-def _call_local(system_prompt: str, user_prompt: str) -> str:
-    base_url  = os.getenv("LOCAL_LLM_URL",      "http://localhost:8000")
-    username  = os.getenv("LOCAL_LLM_USERNAME",  "admin")
-    password  = os.getenv("LOCAL_LLM_PASSWORD",  "your_secure_password_here")
-    model     = os.getenv("LOCAL_LLM_MODEL",     "heavy")
-
-    response = requests.post(
-        f"{base_url}/api/generate",
-        auth=HTTPBasicAuth(username, password),
-        json={"prompt": user_prompt, "system": system_prompt,
-              "model": model, "max_tokens": 2000, "temperature": 0.2},
-        timeout=120,
-    )
-    response.raise_for_status()
-    return response.json()["response"]
-
-
-def _call_openai(system_prompt: str, user_prompt: str) -> str:
-    from openai import OpenAI
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
-    response = client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        messages=[{"role": "system", "content": system_prompt},
-                  {"role": "user",   "content": user_prompt}],
-        temperature=0.2,
-        max_tokens=2000,
-    )
-    return response.choices[0].message.content
-
-
 def _call_mistral(system_prompt: str, user_prompt: str) -> str:
     from mistralai import Mistral
     client = Mistral(api_key=os.getenv("MISTRAL_API_KEY", ""))
@@ -93,28 +61,45 @@ def _call_mistral(system_prompt: str, user_prompt: str) -> str:
     return raw_content or ""
 
 
-def _call_gemini(system_prompt: str, user_prompt: str) -> str:
-    import google.generativeai as genai
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-    client = genai.GenerativeModel(
-        model_name=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
-        generation_config=genai.GenerationConfig(temperature=0.2, max_output_tokens=2000),
-    )
-    response = client.generate_content(f"{system_prompt}\n\n{user_prompt}")
-    return response.text
+def _call_mistral_reasoning(system_prompt: str, user_prompt: str) -> str:
+    """
+    Mistral Small 4 su reasoning mode per raw HTTP (SDK dar nepalaiko reasoning_effort).
+    reasoning_effort: "none" | "high"
+    """
+    api_key = os.getenv("MISTRAL_API_KEY", "")
+    model = os.getenv("MISTRAL_REASONING_MODEL", "mistral-small-latest")
+    reasoning_effort = os.getenv("MISTRAL_REASONING_EFFORT", "high")
 
+    response = requests.post(
+        "https://api.mistral.ai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 4000,
+            "reasoning_effort": reasoning_effort,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
 
 _PROVIDERS = {
-    "local":   _call_local,
-    "openai":  _call_openai,
+    "mistral_reasoning":  _call_mistral_reasoning,
     "mistral": _call_mistral,
-    "gemini":  _call_gemini,
 }
 
 # ── AICallClient ──────────────────────────────────────────────────────────────
 
 class AICallClient:
-    """Fact-checking AI client. Switch provider via AI_PROVIDER env variable."""
+    """Fact-checking AI client. Switch provider via AI_PROVIDER .env variable."""
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None):
         self.provider = os.getenv("AI_PROVIDER", "local").lower()
@@ -157,7 +142,7 @@ class AICallClient:
 Analyze claims against provided source texts and respond ONLY with valid JSON. No extra text."""
 
         user_prompt = f"""Claim to verify: "{original_claim}"
-
+        
 Sources:
 {sources_text}
 
