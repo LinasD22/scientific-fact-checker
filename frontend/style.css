@@ -192,14 +192,6 @@ button:disabled {
   letter-spacing: 0.05em;
 }
 
-.verdict {
-  font-weight: 700;
-  font-size: 16px;
-  margin-bottom: 8px;
-  color: var(--text-main);
-  text-transform: capitalize;
-}
-
 .explanation {
   font-size: 13.5px;
   line-height: 1.5;
@@ -222,23 +214,27 @@ button:disabled {
   border-radius: 4px;
 }
 
+/* style.css */
+
 .resultHeader {
+  margin-bottom: 16px;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 12px;
+  justify-content: center;
 }
 
-.badge {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 12px;
-  background: #e2e8f0;
+.verdict {
+  font-weight: 900;      /* Extra bold */
+  font-size: 24px;      /* Significantly larger */
+  letter-spacing: 1px;
   text-transform: uppercase;
-  font-weight: bold;
+  margin: 0;
+  padding: 5px 0;
 }
 
+/* Color coding for the verdict text */
+.verdict.true { color: var(--score-high); }
+.verdict.false { color: var(--score-low); }
+.verdict.uncertain { color: var(--score-mid); }
 .divider {
   border: 0;
   border-top: 1px solid var(--border-color);

@@ -38,16 +38,27 @@ function autoCheck() {
 
   chrome.runtime.sendMessage(
     { type: "FACT_CHECK", claim: claim },
-    // ... inside your chrome.runtime.sendMessage callback ...
 (response) => {
     checkBtn.disabled = false;
     btnText.textContent = "Check Fact";
     resultCard.classList.remove("hidden");
 
     // 1. Basic Info
-    document.getElementById("finalVerdict").textContent = response.verdict;
-    document.getElementById("finalExplanation").textContent = response.explanation;
-    document.getElementById("consensusBadge").textContent = response.consensus || "N/A";
+    const verdictEl = document.getElementById("finalVerdict");
+const verdictText = (response.verdict || "").toLowerCase();
+
+verdictEl.textContent = response.verdict;
+verdictEl.className = "verdict"; // Reset classes
+
+if (verdictText.includes("supported") || verdictText.includes("true")) {
+    verdictEl.classList.add("true");
+} else if (verdictText.includes("refuted") || verdictText.includes("false")) {
+    verdictEl.classList.add("false");
+} else {
+    verdictEl.classList.add("uncertain");
+}
+
+document.getElementById("finalExplanation").textContent = response.explanation;
     
     // 2. Score Ring
     updateScoreRing(response.score * 100 || 0);
