@@ -39,9 +39,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function checkFact(claim) {
-    //https://api.healthfactchecker.site/api/fact-check/search
   const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
-  const response = await fetch("https://api.healthfactchecker.site/api/fact-check/search", {
+  const response = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ claim: claim })
@@ -49,10 +48,13 @@ async function checkFact(claim) {
 
   const data = await response.json();
 
+  // We return the full object or ensure key fields are mapped
   return {
     verdict: data.final_verdict ?? "unverifiable",
     explanation: data.summary ?? "",
     score: typeof data.agreement_score === "number" ? data.agreement_score : 0,
+    consensus: data.consensus ?? "N/A", // Added this
+    articles_used: data.articles_used ?? [] // Added this
   };
 }
 
