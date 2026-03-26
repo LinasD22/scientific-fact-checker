@@ -236,7 +236,10 @@ class QdrantVectorClient:
     # ── Chunking & storage ─────────────────────────────────────────────────────
 
     def _store_work(self, title: str, text: str, fingerprint: str,
-                    source_db: str = "lazy", source_id: str = "") -> int:
+                    source_db: str = "lazy", source_id: str = "",
+                    authors: str | None = None,
+                    published_date: str | None = None,
+                    url: str | None = None) -> int:
         raw_chunks = self.splitter.split_text(text)
         if not raw_chunks:
             return 0
@@ -254,6 +257,9 @@ class QdrantVectorClient:
                     "fingerprint": fingerprint,
                     "source_db": source_db,
                     "source_id": source_id,
+                    "authors": authors,
+                    "published_date": published_date,
+                    "url": url,
                 }
             )
             for i in range(len(raw_chunks))
@@ -275,6 +281,7 @@ class QdrantVectorClient:
         claim: str,
         works: list[dict[str, Any]],
         top_k: int = 20,
+        works_metadata: dict[str, dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """
         For each work: serve from cache or chunk+embed+store.
@@ -302,12 +309,19 @@ class QdrantVectorClient:
         cache_results = [f.result() for f in futures]
 
         cached_titles, new_titles = [], []
+        works_meta = works_metadata or {}
         for title, text, fp, is_hit in cache_results:
             if is_hit:
                 cached_titles.append(title)
                 logging.info(f"Cache HIT  → '{title}'")
             else:
-                n = self._store_work(title, text, fp, source_db="lazy")
+                meta = works_meta.get(title, {})
+                n = self._store_work(
+                    title, text, fp, source_db="lazy",
+                    authors=meta.get("authors"),
+                    published_date=meta.get("published_date"),
+                    url=meta.get("url"),
+                )
                 new_titles.append(title)
                 logging.info(f"Cache MISS → '{title}' stored {n} chunks")
 
@@ -398,6 +412,9 @@ class QdrantVectorClient:
                 "score": round(hit.score, 4),
                 "source_db": payload.get("source_db", "unknown"),
                 "source_id": payload.get("source_id", ""),
+                "authors": payload.get("authors"),
+                "published_date": payload.get("published_date"),
+                "url": payload.get("url"),
             })
 
         if not candidates:
