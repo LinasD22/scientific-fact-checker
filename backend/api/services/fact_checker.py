@@ -353,11 +353,35 @@ class FactCheckerService:
                 {
                     "text": s["text"],
                     "title": s["title"],
-                    "url": None,
+                    "url": s.get("url"),
                     "score": s["score"],
+                    "published_date": s.get("published_date"),
+                    "authors": s.get("authors"),
                 }
                 for s in global_snippets
             ]
+            
+            # Build articles_used from unique snippets (grouped by title)
+            seen_titles = {}
+            articles_used = []
+            article_index = 0
+            for snippet in global_snippets:
+                title = snippet.get("title", "Unknown")
+                if title.lower().strip() not in seen_titles:
+                    seen_titles[title.lower().strip()] = article_index
+                    articles_used.append(ArticleInfo(
+                        title=title,
+                        published_date=snippet.get("published_date"),
+                        authors=snippet.get("authors"),
+                        source=snippet.get("source_db", "unknown"),
+                        url=snippet.get("url"),
+                        index=article_index,
+                    ))
+                    article_index += 1
+            
+            # Create article_index_map for linking snippets to articles
+            article_index_map = {title.lower().strip(): idx for title, idx in seen_titles.items()}
+            
             # Grąžinam rezultatą be API calls
             individual_responses, comparison = check_facts_with_ai(
                 original_claim=original_claim,
@@ -370,14 +394,14 @@ class FactCheckerService:
                 works_with_text=0,
                 snippets_used=len(source_texts),
                 individual_results=self._format_individual_results(
-                    individual_responses, source_texts
+                    individual_responses, source_texts, article_index_map
                 ),
                 sorted_results=comparison.sorted_results,
                 consensus=comparison.consensus.value if comparison.consensus else None,
                 final_verdict=comparison.final_verdict.value,
                 summary=comparison.summary,
                 agreement_score=comparison.agreement_score,
-                articles_used=[],  # No search-based articles for global search path
+                articles_used=articles_used,
             )
 
         logging.info(
@@ -411,11 +435,42 @@ class FactCheckerService:
             for w in works_with_text
         ]
         # Step 2: Chunk, embed and search for best snippets using qdrant
+        # Build metadata map for storing article info in Qdrant
+        works_metadata = {}
+        for w in works_with_text:
+            works_metadata[w.title] = {
+                "authors": None,  # Will be populated from unique_works when building articles_used
+                "published_date": w.published_date,
+                "url": w.download_url,
+            }
+        
         snippets = self.vector_embed_client.search_snippets_from_texts(
             claim=original_claim,
             works=works_for_qdrant,
             top_k=20,
+            works_metadata=works_metadata,
         )
+        
+        # Step 3: Build articles_used from the original unique_works
+        # Group snippets by article title to build proper article list
+        seen_titles = {}
+        articles_used = []
+        for idx, work in enumerate(unique_works):
+            title = work.get("title", "Untitled")
+            title_key = title.lower().strip()
+            if title_key not in seen_titles:
+                seen_titles[title_key] = len(articles_used)
+                articles_used.append(ArticleInfo(
+                    title=title,
+                    published_date=work.get("published_date"),
+                    authors=work.get("authors"),
+                    source=work.get("source", "unknown"),
+                    url=work.get("download_url"),
+                    index=seen_titles[title_key],
+                ))
+        
+        # Create article_index_map for linking snippets to articles
+        article_index_map = {title.lower().strip(): idx for title, idx in seen_titles.items()}
 
         # Step 3: Qdrant snippets or fallback to full texts
         if snippets:
@@ -463,23 +518,6 @@ class FactCheckerService:
             source_texts=source_texts,
             ai_client=self.ai_client,
         )
-
-        # Build list of articles used from unique_works (original search results)
-        # Create a mapping from title to article index for linking
-        article_index_map: dict[str, int] = {}
-        articles_used = []
-        for idx, work in enumerate(unique_works):
-            title = work.get("title", "Untitled")
-            articles_used.append(ArticleInfo(
-                title=title,
-                published_date=work.get("published_date"),
-                authors=work.get("authors"),
-                source=work.get("source"),
-                url=work.get("download_url"),
-                index=idx,
-            ))
-            # Map title to index (case-insensitive for matching)
-            article_index_map[title.lower().strip()] = idx
 
         return FactCheckResult(
             original_claim=original_claim,
