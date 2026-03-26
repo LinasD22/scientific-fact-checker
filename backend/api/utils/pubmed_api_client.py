@@ -121,6 +121,7 @@ class PubMedAPIClient:
         - Title: passages with type "front"
         - Journal: infons.journal in front passage
         - Date: infons.year in front passage
+        - Authors: infons.authors in front passage (comma-separated string)
         - Abstract: passages with type "abstract"
         - Body Text: passages with type "paragraph"
         """
@@ -130,12 +131,17 @@ class PubMedAPIClient:
         title = None
         journal = None
         published_date = None
+        authors = None
         
         for passage in passages:
             if passage.get("infons", {}).get("type") == "front":
                 title = passage.get("text", "")
                 journal = passage.get("infons", {}).get("journal")
                 published_date = passage.get("infons", {}).get("year")
+                # Extract authors from infons
+                authors_infons = passage.get("infons", {}).get("authors")
+                if authors_infons:
+                    authors = str(authors_infons)
                 break
         
         # Extract abstract
@@ -158,6 +164,7 @@ class PubMedAPIClient:
             "title": title,
             "journal": journal,
             "published_date": published_date,
+            "authors": authors,
             "abstract": abstract,
             "full_text": full_text
         }

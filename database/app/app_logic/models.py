@@ -7,6 +7,8 @@
 # Feel free to rename the models, but don't rename db_table values or field names.
 from django.db import models
 
+from .password_utils import hash_password, verify_password
+
 
 class Busena(models.Model):
     id = models.IntegerField(db_column='Id', primary_key=True)   
@@ -61,7 +63,28 @@ class Prenumerata(models.Model):
 
 class Prisijungimas(models.Model):
     el_pastas = models.CharField(db_column='El_pastas', primary_key=True, max_length=255)   
-    slaptazodis = models.CharField(db_column='Slaptazodis', max_length=255)   
+    slaptazodis = models.CharField(db_column='Slaptazodis', max_length=255)  # Stores bcrypt hashed password
+
+    def set_password(self, plain_password: str) -> None:
+        """
+        Hash and set the password.
+        
+        Args:
+            plain_password: Plain text password to hash and store
+        """
+        self.slaptazodis = hash_password(plain_password)
+
+    def check_password(self, plain_password: str) -> bool:
+        """
+        Verify a plain text password against the stored hash.
+        
+        Args:
+            plain_password: Plain text password to verify
+            
+        Returns:
+            True if password matches, False otherwise
+        """
+        return verify_password(plain_password, self.slaptazodis)
 
     class Meta:
         managed = True

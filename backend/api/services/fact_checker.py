@@ -10,6 +10,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from api.utils.ai_calls import AICallClient, FactCheckResponse, check_facts_with_ai
@@ -30,6 +31,17 @@ class FactCheckWork:
 
 
 @dataclass
+class ArticleInfo:
+    """Information about a scientific article used in fact-checking."""
+    title: str
+    published_date: str | None
+    authors: str | None  # Author information if available
+    source: str | None  # "core" or "pubmed"
+    url: str | None
+    index: int  # Index to link with individual_results
+
+
+@dataclass
 class FactCheckResult:
     """Final fact-check result combining all sources."""
     original_claim: str
@@ -42,6 +54,7 @@ class FactCheckResult:
     final_verdict: str
     summary: str
     agreement_score: float
+    articles_used: list[ArticleInfo]  # List of articles used for fact-checking
 
 
 class FactCheckerService:
@@ -65,9 +78,21 @@ class FactCheckerService:
             raw_works = self.core_client.search_and_get_fulltext(query=query, limit=limit)
             works = []
             for w in raw_works:
+                # Extract authors from various possible fields
+                authors = None
+                if w.get("authors"):
+                    author_list = w.get("authors", [])
+                    if isinstance(author_list, list):
+                        authors = ", ".join([a.get("name", "") for a in author_list if a.get("name")])
+                    elif isinstance(author_list, str):
+                        authors = author_list
+                elif w.get("creator"):
+                    authors = w.get("creator")
+                
                 work = {
                     "title": w.get("title", "Untitled"),
                     "published_date": w.get("publishedDate"),
+                    "authors": authors,
                     "abstract": w.get("abstract"),
                     "full_text": w.get("fullText"),
                     "download_url": w.get("downloadUrl"),
@@ -89,6 +114,7 @@ class FactCheckerService:
                 work = {
                     "title": w.get("title", "Untitled"),
                     "published_date": w.get("published_date"),
+                    "authors": w.get("authors"),  # PubMed client should provide authors
                     "abstract": w.get("abstract"),
                     "full_text": w.get("full_text"),
                     "download_url": f"https://www.ncbi.nlm.nih.gov/pmc/articles/{w.get('pmc_id', '')}",
@@ -115,6 +141,99 @@ class FactCheckerService:
                 seen_titles.add(title)
         
         return unique_works
+
+    def _get_years_ago(self, published_date: str | None) -> float | None:
+        """Calculate years ago from published date. Returns None if date is invalid."""
+        if not published_date:
+            return None
+        
+        try:
+            # Try parsing various date formats
+            for fmt in ["%Y-%m-%d", "%Y-%m", "%Y"]:
+                try:
+                    pub_date = datetime.strptime(published_date[:10] if len(published_date) >= 10 else published_date, fmt)
+                    break
+                except ValueError:
+                    continue
+            else:
+                return None
+            
+            # Use current time in UTC
+            current_date = datetime.now(timezone.utc)
+            
+            # Handle naive dates (assume UTC)
+            if pub_date.tzinfo is None:
+                pub_date = pub_date.replace(tzinfo=timezone.utc)
+            
+            # Calculate years difference
+            days_diff = (current_date - pub_date).days
+            if days_diff < 0:
+                return 0  # Future dates treated as 0 years ago
+            
+            return days_diff / 365.25
+        except (ValueError, TypeError, OSError):
+            return None
+
+    def _prioritize_works_by_age(
+        self, 
+        works: list[dict[str, Any]], 
+        target_count: int
+    ) -> list[dict[str, Any]]:
+        """Prioritize works by age: <2 years > <5 years > any.
+        
+        Args:
+            works: List of works with published_date field
+            target_count: Desired number of works to return
+            
+        Returns:
+            Prioritized list of works
+        """
+        if not works or target_count <= 0:
+            return []
+        
+        current_year = 2026  # Current year from environment
+        
+        # Categorize works by age
+        less_than_2_years = []
+        less_than_5_years = []
+        older_or_unknown = []
+        
+        for work in works:
+            years_ago = self._get_years_ago(work.get("published_date"))
+            
+            if years_ago is None:
+                # Unknown date - put in fallback category
+                older_or_unknown.append(work)
+            elif years_ago < 2:
+                less_than_2_years.append(work)
+            elif years_ago < 5:
+                less_than_5_years.append(work)
+            else:
+                older_or_unknown.append(work)
+        
+        # Build prioritized result
+        prioritized = []
+        
+        # First, add all <2 year old papers
+        prioritized.extend(less_than_2_years)
+        
+        # If we need more, add <5 year old papers
+        if len(prioritized) < target_count:
+            remaining_needed = target_count - len(prioritized)
+            prioritized.extend(less_than_5_years[:remaining_needed])
+        
+        # If we still need more, add older/unknown papers
+        if len(prioritized) < target_count:
+            remaining_needed = target_count - len(prioritized)
+            prioritized.extend(older_or_unknown[:remaining_needed])
+        
+        logging.info(
+            f"Paper age prioritization: {len(less_than_2_years)} <2yo, "
+            f"{len(less_than_5_years)} <5yo, {len(older_or_unknown)} older/unknown. "
+            f"Returning {len(prioritized)} papers."
+        )
+        
+        return prioritized
 
     def search_multiple_databases(
         self,
@@ -159,23 +278,39 @@ class FactCheckerService:
         unique_works = self._deduplicate_works(all_works)
         logging.info(f"Total unique works after deduplication: {len(unique_works)}")
         
-        return unique_works, databases_queried, partial_failure
+        # Prioritize papers by age: <2 years > <5 years > any
+        # Multiply limit by 2 to get enough candidates for prioritization
+        prioritized_works = self._prioritize_works_by_age(
+            works=unique_works, 
+            target_count=limit_per_db * 2
+        )
+        
+        return prioritized_works, databases_queried, partial_failure
 
     def _format_individual_results(
         self,
         individual_responses: list[FactCheckResponse],
         source_texts: list[dict[str, Any]],
+        article_index_map: dict[str, int] | None = None,
     ) -> list[dict[str, Any]]:
-        """Format individual AI responses with their source texts."""
+        """Format individual AI responses with their source texts.
+        
+        Args:
+            individual_responses: AI responses for each source
+            source_texts: The source texts used
+            article_index_map: Optional mapping from title to article index
+        """
         individual_results = []
         for i, res in enumerate(individual_responses):
             source = source_texts[i] if i < len(source_texts) else {}
-            individual_results.append({
-                "source_title": source.get("title", "Unknown"),
+            source_title = source.get("title", "Unknown")
+            
+            result_dict = {
+                "source_title": source_title,
                 "source_url": source.get("url"),
                 "published_date": source.get("published_date"),
                 "qdrant_score": source.get("score"),
-                "rerank_score": source.get("rerank_score"),
+                "rerank_score": source.get("rerank_score"),  # May be None if not available
                 "source_text": source.get("text", ""),  # ← originalus tekstas
                 "is_verified": res.is_verified,
                 "confidence": res.confidence,
@@ -183,7 +318,13 @@ class FactCheckerService:
                 "explanation": res.explanation,
                 "supporting_evidence": res.supporting_evidence,
                 "contradicting_evidence": res.contradicting_evidence,
-            })
+            }
+            
+            # Add article index if mapping is provided
+            if article_index_map and source_title in article_index_map:
+                result_dict["article_index"] = article_index_map[source_title]
+            
+            individual_results.append(result_dict)
         return individual_results
 
     def check_claim(
@@ -236,53 +377,7 @@ class FactCheckerService:
                 final_verdict=comparison.final_verdict.value,
                 summary=comparison.summary,
                 agreement_score=comparison.agreement_score,
-            )
-
-        logging.info(
-            f"Global search rado tik {len(global_snippets)} — "
-            f"fallback į lazy indexing."
-        )
-
-        # ── Step 1: Bandyk global Qdrant search (greita, be API calls) ──────────
-        global_snippets = self.vector_embed_client.search_global(
-            claim=original_claim,
-            top_k=limit,
-            min_score=global_search_threshold,
-        )
-
-        if len(global_snippets) >= global_min_results:
-            logging.info(
-                f"Global search rado {len(global_snippets)} snippetų — "
-                f"praleižiame API calls."
-            )
-            source_texts = [
-                {
-                    "text": s["text"],
-                    "title": s["title"],
-                    "url": None,
-                    "score": s["score"],
-                }
-                for s in global_snippets
-            ]
-            # Grąžinam rezultatą be API calls
-            individual_responses, comparison = check_facts_with_ai(
-                original_claim=original_claim,
-                source_texts=source_texts,
-                ai_client=self.ai_client,
-            )
-            return FactCheckResult(
-                original_claim=original_claim,
-                works_searched=0,
-                works_with_text=0,
-                snippets_used=len(source_texts),
-                individual_results=self._format_individual_results(
-                    individual_responses, source_texts
-                ),
-                sorted_results=comparison.sorted_results,
-                consensus=comparison.consensus.value if comparison.consensus else None,
-                final_verdict=comparison.final_verdict.value,
-                summary=comparison.summary,
-                agreement_score=comparison.agreement_score,
+                articles_used=[],  # No search-based articles for global search path
             )
 
         logging.info(
@@ -359,6 +454,7 @@ class FactCheckerService:
                 final_verdict="unverifiable",
                 summary="No source texts found from Core API or Qdrant for this claim.",
                 agreement_score=0.0,
+                articles_used=[],  # No articles used when no source texts found
             )
 
         # Step 4: AI fact-checking
@@ -368,17 +464,37 @@ class FactCheckerService:
             ai_client=self.ai_client,
         )
 
+        # Build list of articles used from unique_works (original search results)
+        # Create a mapping from title to article index for linking
+        article_index_map: dict[str, int] = {}
+        articles_used = []
+        for idx, work in enumerate(unique_works):
+            title = work.get("title", "Untitled")
+            articles_used.append(ArticleInfo(
+                title=title,
+                published_date=work.get("published_date"),
+                authors=work.get("authors"),
+                source=work.get("source"),
+                url=work.get("download_url"),
+                index=idx,
+            ))
+            # Map title to index (case-insensitive for matching)
+            article_index_map[title.lower().strip()] = idx
+
         return FactCheckResult(
             original_claim=original_claim,
             works_searched=len(works),
             works_with_text=len(works_with_text),
             snippets_used=len(source_texts),
-            individual_results=self._format_individual_results(individual_responses, source_texts),
+            individual_results=self._format_individual_results(
+                individual_responses, source_texts, article_index_map
+            ),
             sorted_results=comparison.sorted_results,
             consensus=comparison.consensus.value if comparison.consensus else None,
             final_verdict=comparison.final_verdict.value,
             summary=comparison.summary,
             agreement_score=comparison.agreement_score,
+            articles_used=articles_used,
         )
 
     def check_claim_with_texts(
@@ -403,6 +519,7 @@ class FactCheckerService:
             final_verdict=comparison.final_verdict.value,
             summary=comparison.summary,
             agreement_score=comparison.agreement_score,
+            articles_used=[],  # No search-based articles for texts-only check
         )
 
 
