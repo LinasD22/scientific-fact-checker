@@ -300,10 +300,15 @@ button:disabled {
 }
 .evidence-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     margin-bottom: 6px;
 }
+
+.evidence-verdict-wrapper {
+    margin-bottom: 8px;
+}
+
+
 .evidence-title {
     font-weight: 600;
     font-size: 12px;

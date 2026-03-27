@@ -238,7 +238,7 @@ class FactCheckerService:
     def search_multiple_databases(
         self,
         query: str,
-        limit_per_db: int = 3
+        limit_per_db: int = 10
     ) -> tuple[list[dict[str, Any]], list[str], str | None]:
         """Search both Core and PubMed databases in parallel.
         
@@ -331,8 +331,8 @@ class FactCheckerService:
         self,
         original_claim: str,
         query: str | None = None,
-        limit: int = 3,
-        global_search_threshold: float = 0.65,
+        limit: int = 20,
+        global_search_threshold: float = 0.7,
         global_min_results: int = 10,
     ) -> FactCheckResult:
         search_query = query or original_claim
@@ -340,7 +340,7 @@ class FactCheckerService:
         # ── Step 1: Bandyk global Qdrant search (greita, be API calls) ──────────
         global_snippets = self.vector_embed_client.search_global(
             claim=original_claim,
-            top_k=limit,
+            top_k=20,
             min_score=global_search_threshold,
         )
 
@@ -460,7 +460,7 @@ class FactCheckerService:
         snippets = self.vector_embed_client.search_snippets_from_texts(
             claim=original_claim,
             works=works_for_qdrant,
-            top_k=20,
+            top_k=10,
             works_metadata=works_metadata,
         )
 

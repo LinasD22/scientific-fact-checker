@@ -84,7 +84,9 @@ document.getElementById("finalExplanation").textContent = response.explanation;
                 item.innerHTML = `
                     <div class="evidence-header">
                         <span class="evidence-title">${r.source_title || "Unknown source"}</span>
-                        <span class="verdict ${verdictClass}" style="font-size:11px; padding:2px 6px">${verdict}</span>
+                    </div>
+                    <div class="evidence-verdict-wrapper">
+                        <span class="verdict ${verdictClass}" style="font-size:11px; padding:2px 6px; display: inline-block;">${verdict}</span>
                     </div>
                     <div class="evidence-snippet">"${r.source_text || ""}"</div>
                     <div class="evidence-explanation">${r.explanation || ""}</div>

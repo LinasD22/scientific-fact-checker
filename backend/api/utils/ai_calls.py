@@ -53,7 +53,7 @@ def _call_mistral(system_prompt: str, user_prompt: str) -> str:
         messages=[{"role": "system", "content": system_prompt},
                   {"role": "user",   "content": user_prompt}],
         temperature=0.2,
-        max_tokens=2000,
+        max_tokens=8000,
     )
     raw_content = response.choices[0].message.content
     if isinstance(raw_content, list):
@@ -111,6 +111,9 @@ class AICallClient:
     def _call_ai(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         content = _PROVIDERS[self.provider](system_prompt, user_prompt).strip()
 
+        # Log the raw content for debugging
+        logging.info(f"AI Response (first 500 chars): {content[:500]}")
+
         # Strip markdown code blocks if present
         if content.startswith("```"):
             content = content.split("```")[1]
@@ -119,9 +122,34 @@ class AICallClient:
             content = content.strip()
 
         try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            return {"raw_response": content}
+            parsed = json.loads(content)
+            # Validate that we got the expected structure
+            if "individual_results" not in parsed:
+                logging.error(f"AI response missing 'individual_results' key. Response: {content[:500]}")
+                # Try to salvage - maybe the AI returned a different format
+                return {
+                    "individual_results": [],
+                    "sorted_results": [],
+                    "consensus": None,
+                    "final_verdict": "unverifiable",
+                    "summary": f"AI returned invalid format. Raw: {content[:200]}",
+                    "agreement_score": 0.0,
+                    "raw_response": content
+                }
+            return parsed
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse AI response as JSON: {e}")
+            logging.error(f"Raw content: {content[:1000]}")
+            # Return a fallback structure so the app doesn't crash
+            return {
+                "individual_results": [],
+                "sorted_results": [],
+                "consensus": None,
+                "final_verdict": "unverifiable",
+                "summary": f"AI response parsing failed: {str(e)}. Check AI provider response format.",
+                "agreement_score": 0.0,
+                "raw_response": content
+            }
 
     def check_all_facts(
         self,
