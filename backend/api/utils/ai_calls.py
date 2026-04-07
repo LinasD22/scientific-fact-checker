@@ -10,7 +10,7 @@ Supports multiple providers via AI_PROVIDER .env variable:
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -43,6 +43,8 @@ class ComparisonResult:
     final_verdict: FactCheckResult
     summary: str
     agreement_score: float
+    weighted_verdict: FactCheckResult | None = None  # Verdict from weighted aggregation
+    source_reliability_scores: dict[str, float] = field(default_factory=dict)  # source title -> reliability rating
 
 
 def _call_mistral(system_prompt: str, user_prompt: str) -> str:
@@ -153,6 +155,7 @@ Respond ONLY with this JSON structure:
             "source": "Source title",
             "is_verified": true/false,
             "confidence": 0.0-1.0,
+            "reliability": 0.0-1.0,
             "result": "verified" or "partially_verified" or "false" or "unverifiable" or "conflicting",
             "explanation": "Explanation using this source",
             "supporting_evidence": ["snippets that support the claim"],
@@ -163,6 +166,7 @@ Respond ONLY with this JSON structure:
         {{
             "source": "Source title",
             "confidence": 0.0-1.0,
+            "reliability": 0.0-1.0,
             "result": "verified" or "partially_verified" or "false" or "unverifiable",
             "key_evidence": "Most important evidence from this source"
         }}
@@ -173,7 +177,14 @@ Respond ONLY with this JSON structure:
     "agreement_score": 0.0 to 1.0 (1.0 = 100% all sources agree, 0.5 = 50% agree, 0.0 = complete disagreement)
 }}
 
-sorted_results must be sorted by confidence (highest first)."""
+IMPORTANT GUIDELINES FOR RELIABILITY RATINGS:
+- "reliability" (0.0-1.0) represents how trustworthy/authoritative this source is as evidence
+- Consider: source quality, scientific rigor, publication status, peer-review, relevance to claim
+- "confidence" (0.0-1.0) represents how confident you are in this source's verdict on the claim
+- Confidence is independent of reliability: a reliable source might still be uncertain about a claim (low confidence)
+- Only include sources with reliability >= 0.3 in the final aggregation (exclude very low-quality sources)
+
+sorted_results must be sorted by reliability (highest first)."""
 
         return self._call_ai(system_prompt, user_prompt)
 
@@ -209,6 +220,94 @@ def fact_preprocess(
     return json
 
 
+# ── Aggregation functions ─────────────────────────────────────────────────────
+
+def _aggregate_source_verdicts(
+    individual_results: list[dict[str, Any]],
+    min_reliability_threshold: float = 0.3,
+) -> tuple[FactCheckResult, float, dict[str, float]]:
+    """
+    Aggregate individual source verdicts using weighted averaging by reliability.
+    
+    Args:
+        individual_results: List of results from each source with reliability ratings
+        min_reliability_threshold: Minimum reliability score to include in aggregation (default 0.3)
+    
+    Returns:
+        (aggregated_verdict, weighted_agreement_score)
+    """
+    if not individual_results:
+        return FactCheckResult.UNVERIFIABLE, 0.0, {}
+    
+    # Filter sources by minimum reliability threshold
+    reliable_sources = [
+        r for r in individual_results
+        if float(r.get("reliability", 0.0)) >= min_reliability_threshold
+    ]
+    
+    if not reliable_sources:
+        # If no sources meet threshold, use all sources with warning
+        logging.warning(f"No sources met minimum reliability threshold {min_reliability_threshold}, using all sources")
+        reliable_sources = individual_results
+    
+    # Map verdict strings to numeric values for weighted averaging
+    verdict_map = {
+        "verified": 1.0,
+        "partially_verified": 0.5,
+        "false": 0.0,
+        "unverifiable": 0.25,  # Neutral middle ground
+        "conflicting": 0.5,    # Treated as partially verified
+    }
+    
+    total_weight = 0.0
+    weighted_verdict_score = 0.0
+    reliability_scores = {}
+    
+    for source in reliable_sources:
+        result_str = source.get("result", "unverifiable")
+        reliability = float(source.get("reliability", 0.5))
+        
+        # Use reliability as weight
+        weight = reliability
+        total_weight += weight
+        
+        # Get numeric value for verdict
+        verdict_value = verdict_map.get(result_str, 0.25)
+        weighted_verdict_score += verdict_value * weight
+        
+        # Store source reliability scores
+        source_title = source.get("source", f"Source {len(reliability_scores)}")
+        reliability_scores[source_title] = reliability
+    
+    # Calculate weighted average verdict
+    if total_weight > 0:
+        avg_verdict_score = weighted_verdict_score / total_weight
+    else:
+        avg_verdict_score = 0.25
+    
+    # Determine final verdict based on weighted average
+    if avg_verdict_score >= 0.75:
+        final_verdict = FactCheckResult.VERIFIED
+    elif avg_verdict_score >= 0.6:
+        final_verdict = FactCheckResult.PARTIALLY_VERIFIED
+    elif avg_verdict_score <= 0.25:
+        final_verdict = FactCheckResult.FALSE
+    else:
+        # 0.25 < score < 0.6
+        final_verdict = FactCheckResult.UNVERIFIABLE
+    
+    # Calculate weighted agreement score
+    # How much sources agree on the final verdict
+    sources_supporting_verdict = sum(
+        float(s.get("reliability", 0.0))
+        for s in reliable_sources
+        if verdict_map.get(s.get("result", "unverifiable"), 0.25) >= (avg_verdict_score - 0.1)
+    )
+    weighted_agreement = sources_supporting_verdict / total_weight if total_weight > 0 else 0.0
+    
+    return final_verdict, weighted_agreement, reliability_scores
+
+
 # ── Main function ─────────────────────────────────────────────────────────────
 
 def check_facts_with_ai(
@@ -230,7 +329,9 @@ def check_facts_with_ai(
     result = ai_client.check_all_facts(original_claim, source_texts)
 
     responses = []
-    for r in result.get("individual_results", []):
+    individual_results_raw = result.get("individual_results", [])
+    
+    for r in individual_results_raw:
         try:
             responses.append(FactCheckResponse(
                 is_verified=r.get("is_verified", False),
@@ -250,19 +351,32 @@ def check_facts_with_ai(
             ))
 
     try:
+        # Perform aggregation-based verdict calculation
+        aggregated_verdict, weighted_agreement, source_reliability_scores = _aggregate_source_verdicts(
+            individual_results_raw,
+            min_reliability_threshold=0.3,
+        )
+        
+        # Use AI's consensus/final_verdict as fallback if aggregation fails
+        ai_final_verdict = FactCheckResult(result.get("final_verdict", "unverifiable"))
+        
         comparison = ComparisonResult(
             sorted_results=result.get("sorted_results", []),
             consensus=FactCheckResult(result["consensus"]) if result.get("consensus") else None,
-            final_verdict=FactCheckResult(result.get("final_verdict", "unverifiable")),
+            final_verdict=aggregated_verdict,  # Use aggregated verdict instead of AI's
             summary=result.get("summary", ""),
-            agreement_score=float(result.get("agreement_score", 0.0)),
+            agreement_score=weighted_agreement,  # Use weighted agreement score
+            source_reliability_scores=source_reliability_scores,
+            weighted_verdict=aggregated_verdict,
         )
     except (ValueError, KeyError) as e:
+        logging.error(f"Error in aggregation: {e}")
         comparison = ComparisonResult(
             sorted_results=[], consensus=None,
             final_verdict=FactCheckResult.UNVERIFIABLE,
             summary=f"Error parsing comparison: {str(e)}",
             agreement_score=0.0,
+            source_reliability_scores={},
         )
 
     return responses, comparison
