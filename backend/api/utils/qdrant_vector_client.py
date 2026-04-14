@@ -30,39 +30,22 @@ from qdrant_client.models import (
 )
 
 os.environ.setdefault("OMP_NUM_THREADS", "16")
-os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")   # avoid busy-wait on idle cores
+os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
 os.environ.setdefault("ONNXRUNTIME_INTER_OP_NUM_THREADS", "16")
 os.environ.setdefault("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
 
-from fastembed import TextEmbedding  # noqa: E402  (must come after .env vars)
-from sentence_transformers import CrossEncoder  # noqa: E402
+from fastembed import TextEmbedding
+from sentence_transformers import CrossEncoder
 
 COLLECTION = "fact_checker_cache"
 
-# Ryzen 9950X batch optimum: large enough to saturate ONNX threads,
-# small enough to avoid memory pressure on long academic texts.
 _EMBED_BATCH_SIZE  = 128
-_UPSERT_BATCH_SIZE = 256   # Qdrant local file — larger batch = fewer syscalls
-_THREAD_POOL_SIZE  = 8     # for parallel _is_cached scroll lookups
-
-# Reranking: fetch more candidates from Qdrant so the cross-encoder
-# has enough material to reorder before we cut to top_k.
+_UPSERT_BATCH_SIZE = 256
+_THREAD_POOL_SIZE  = 8
 _FETCH_MULTIPLIER = 4   # fetch top_k * 4 candidates for reranking
 
 # ------ Reikia cargo ir rustc iš: https://rustup.rs/
 class QdrantVectorClient:
-    """Persistent local Qdrant client for searching scientific text snippets.
-
-    Chunks and embeddings are cached on disk by title fingerprint.
-    Subsequent requests for the same paper skip chunking and embedding entirely.
-
-    Embedding backend: fastembed (ONNX Runtime) — ~3-5x faster than
-    sentence-transformers on CPU, no GPU required.
-
-    Reranking backend: cross-encoder/ms-marco-MiniLM-L-6-v2 — lightweight
-    cross-encoder that re-scores (claim, chunk) pairs for higher precision.
-    """
-
     def __init__(self):
         self.model_name = os.getenv(
             "EMBEDDING_MODEL",
@@ -92,7 +75,6 @@ class QdrantVectorClient:
         logging.info(f"Loading cross-encoder reranker: {self.reranker_model_name}")
         self.reranker = CrossEncoder(
             self.reranker_model_name,
-            # MiniLM-L-6 fits comfortably in RAM; no GPU needed
             device="cpu",
         )
         logging.info("Reranker ready.")
@@ -105,7 +87,6 @@ class QdrantVectorClient:
             chunk_overlap=self.chunk_overlap,
         )
 
-        # Reusable thread pool for parallel cache lookups
         self._executor = ThreadPoolExecutor(max_workers=_THREAD_POOL_SIZE)
 
     # ── Vector size probe ──────────────────────────────────────────────────────
@@ -180,12 +161,6 @@ class QdrantVectorClient:
     # ── Embedding (ONNX / fastembed) ───────────────────────────────────────────
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
-        """
-        Embed a list of texts using fastembed (ONNX Runtime).
-
-        fastembed.embed() is a generator — we batch internally to control
-        memory on large chunk lists while keeping ONNX threads saturated.
-        """
         results: list[list[float]] = []
         for i in range(0, len(texts), _EMBED_BATCH_SIZE):
             batch = texts[i : i + _EMBED_BATCH_SIZE]
@@ -201,14 +176,7 @@ class QdrantVectorClient:
         candidates: list[dict[str, Any]],
         top_k: int,
     ) -> list[dict[str, Any]]:
-        """
-        Score each (claim, chunk_text) pair with the cross-encoder,
-        filter by min_rerank_score, sort descending, return top_k.
 
-        Cross-encoder scores are raw logits (unbounded floats) — higher = better.
-        -5.0 default min_rerank_score drops clearly irrelevant chunks while
-        keeping borderline ones that passed the vector search threshold.
-        """
         if not candidates:
             return []
 
@@ -283,13 +251,7 @@ class QdrantVectorClient:
         top_k: int = 20,
         works_metadata: dict[str, dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        For each work: serve from cache or chunk+embed+store.
-        Cache lookups run in parallel via ThreadPoolExecutor.
-        Then:
-          1. Vector search → top_k * _RERANK_FETCH_MULTIPLIER candidates
-          2. Cross-encoder reranking → top_k final results
-        """
+
         if not works:
             return []
 
@@ -387,10 +349,7 @@ class QdrantVectorClient:
             top_k: int = 3,
             min_score: float = 0.45,
     ) -> list[dict[str, Any]]:
-        """
-        Ieško per VISĄ kolekciją be title filtro.
-        Naudojama kai turima daug embedded dokumentų.
-        """
+
         query_vector = self._embed([claim])[0]
         fetch_limit = top_k * _FETCH_MULTIPLIER
 

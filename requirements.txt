@@ -1,3 +1,4 @@
+mesh
 qdrant-client
 fastembed
 anitya_schema==2.3.0

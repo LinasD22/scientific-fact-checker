@@ -39,7 +39,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function checkFact(claim) {
-  const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+  //const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+  const API_URL = "http://localhost:8080/api/fact-check/search";
+
   const response = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
