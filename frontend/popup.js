@@ -189,3 +189,37 @@ function animateScoreText(targetScore) {
 document.getElementById("closePanelBtn").addEventListener("click", () => {
   window.parent.postMessage({ type: "CLOSE_PANEL" }, "*");
 });
+
+document.addEventListener('DOMContentLoaded', function() {
+    const authBtnAction = document.getElementById('authBtnAction');
+    const userInfo = document.getElementById('userInfo');
+
+    function updateUI() {
+        chrome.storage.local.get(['token', 'userEmail'], (result) => {
+            if (result.token) {
+                userInfo.innerText = "Logged in as " + result.userEmail;
+                authBtnAction.innerText = "Logout";
+            } else {
+                userInfo.innerText = "Not logged in";
+                authBtnAction.innerText = "Login/Register";
+            }
+        });
+    }
+
+    authBtnAction.addEventListener('click', () => {
+        chrome.storage.local.get(['token'], (result) => {
+            if (result.token) {
+                // LOGOUT LOGIC
+                chrome.storage.local.remove(['token', 'userEmail'], () => {
+                    updateUI();
+                    // todo: Call backend /logout endpoint here if blacklisting
+                });
+            } else {
+                // LOGIN LOGIC
+                chrome.runtime.sendMessage({ type: "OPEN_AUTH" });
+            }
+        });
+    });
+
+    updateUI();
+});

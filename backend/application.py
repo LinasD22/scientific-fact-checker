@@ -30,5 +30,22 @@ app.add_middleware(
 # Include fact-check routes
 app.include_router(fact_check_router, prefix="/api", tags=["fact-check"])
 
+# Database setup
+from api.db.database import engine
+from sqlmodel import SQLModel
+from api.db import models 
+
+def create_db_and_tables():
+    # Generates the SQL logs
+    SQLModel.metadata.create_all(engine)
+
+@app.on_event("startup")
+def on_startup():
+    create_db_and_tables()
+
+# Include authentication routes
+from api.controllers import auth
+app.include_router(auth.router)
+
 if __name__ == "__main__":
     os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8080")

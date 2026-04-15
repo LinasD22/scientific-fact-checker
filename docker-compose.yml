@@ -1,0 +1,43 @@
+services:
+  db:
+    image: mariadb:10.11
+    restart: always
+    environment:
+      MYSQL_DATABASE: fact_checker_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: K630
+      MYSQL_ROOT_PASSWORD: K630_2
+    env_file:
+      - ./database/.env
+    volumes:
+      - mariadb_data:/var/lib/mysql  # keeps data alive after container restarts
+    # add ports only if running locally for development
+    ports:
+      - "3306:3306"
+    healthcheck:
+      #for local development:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      #for server deployment:
+      #test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      
+
+  # leave this commented only for local development, comment out for server deployment
+  # web:
+  #   build: .
+  #   env_file:
+  #     - .env
+  #   command: python manage.py runserver 0.0.0.0:8000
+  #   volumes:
+  #     - ./app:/app
+  #   ports:
+  #     - "8000:8000"  
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+
+
+volumes:
+  mariadb_data: {}
