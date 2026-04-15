@@ -81,7 +81,7 @@ DATABASES = {
         'USER': os.environ.get('DB_USER'),
         'PASSWORD': os.environ.get('DB_PASSWORD'),
         'HOST': os.environ.get('DB_HOST', 'db'),
-        'PORT': os.environ.get('DB_PORT', '3306'),
+        'PORT': os.environ.get('DB_PORT', '3307'),
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         },
@@ -119,6 +119,8 @@ USE_I18N = True
 
 USE_TZ = True
 
+# Tell Django to trust the X-Forwarded-Proto header from Cloudflare
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
