@@ -12,9 +12,6 @@
 /app/api/server/models/
 .env
 backend/.env
-backend/qdrant_cache/collection/fact_checker_cache/storage.sqlite
-backend/api/utils/qdrant_cache/collection/fact_checker_cache/storage.sqlite
-backend/api/utils/qdrant_cache/.lock
-backend/api/utils/qdrant_cache/meta.json
-/venv
 /backend/qdrant_cache
+backend/api/utils/qdrant_cache
+/venv
