@@ -6,6 +6,7 @@ log = logging.getLogger(__name__)
 
 
 class MeshParser:
+    #https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh/
     def __init__(self, mesh_file_path: str = "desc2026.xml"):
         self.mesh_file_path = mesh_file_path
         self.tree_to_term = {}

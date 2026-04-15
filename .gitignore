@@ -9,6 +9,5 @@
 .idea
 /__pycache__/
 *.pyc
-/app/api/server/models/
 .env
 /backend/qdrant_cache/
