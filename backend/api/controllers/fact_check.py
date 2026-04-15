@@ -34,8 +34,8 @@ async def fact_check_with_search(
        b. Search Qdrant for high-relevance snippets
        c. Use AI to fact-check snippets against the claim
     3. Return results:
-       - For now: only first fact (to avoid breaking frontend)
-       - TODO: Eventually stream all facts as they complete
+       - Backward compatible: first fact in top-level fields
+       - New: all_results array with complete results for each fact
     """
     try:
         service = create_fact_checker()
@@ -95,8 +95,8 @@ async def fact_check_with_search(
                 })
         
         # ── Step 3: Return results ──
-        # FOR NOW: Only send the first fact's result to avoid breaking frontend
-        # TODO: In future, implement streaming to send results as they complete
+        # Backward compatible: first fact in top-level fields
+        # Frontend-ready: all_results array with complete results
         first_result = all_results[0] if all_results else {}
         
         response_content = {
@@ -104,15 +104,15 @@ async def fact_check_with_search(
             "facts_checked": len([r for r in all_results if "error" not in r]),
             "current_fact_index": 0,  # Frontend placeholder
             "current_fact": facts[0] if facts else claim,
-            # === CURRENT RESULT (first fact only) ===
+            # === BACKWARD COMPATIBLE (first fact only) ===
             "consensus": first_result.get("consensus"),
             "final_verdict": first_result.get("final_verdict"),
             "summary": first_result.get("summary"),
             "agreement_score": first_result.get("agreement_score"),
             "individual_results": first_result.get("individual_results", []),
             "articles_used": first_result.get("articles_used", []),
-            # === TODO: STREAMING ALL RESULTS ===
-            # "all_results": all_results,  # Uncomment when frontend ready for all results
+            # === NEW: ALL RESULTS ===
+            "all_results": all_results,
         }
         
         return JSONResponse(
