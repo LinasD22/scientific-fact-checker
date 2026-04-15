@@ -4,6 +4,10 @@ Test script for preprocessing - breaking text into individual facts.
 import sys
 from pathlib import Path
 
+# Load .env file first, before any imports that depend on it
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
 # Setup path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
