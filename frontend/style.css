@@ -289,3 +289,81 @@ button:disabled {
   text-align: left;
   white-space: pre-wrap; /* Wraps text so it doesn't just go off-screen */
 }
+  color: #4b5563;
+}
+
+html, body {
+    height: 100%;
+    margin: 0;
+}
+
+/* Center Alignment Container */
+.flex-center {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    width: 100%;
+}
+
+.auth-card {
+    background: #ffffff;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 360px;
+    text-align: center;
+    box-sizing: border-box;
+}
+h2 {
+    margin-top: 0;
+    color: #2d3436;
+    font-weight: 600;
+}
+
+/* Input Fields */
+.input-group {
+    width: 100%;
+    margin-bottom: 15px;
+}
+
+input {
+    width: 100%;
+    padding: 12px 15px;
+    margin: 8px 0;
+    display: inline-block;
+    border: 1px solid #dfe6e9;
+    border-radius: 6px;
+    box-sizing: border-box;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+input:focus {
+    border-color: #0984e3;
+    outline: none;
+}
+
+/* Toggle Link */
+.toggle-text {
+    margin-top: 20px;
+    font-size: 13px;
+    color: #636e72;
+}
+
+.link-span {
+    color: #0984e3;
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: underline;
+}
+
+/* Error Messages */
+.error-msg {
+    color: #d63031;
+    font-size: 12px;
+    margin-bottom: 10px;
+    display: none; /* Hidden by default */
+}
