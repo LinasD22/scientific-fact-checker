@@ -383,3 +383,60 @@ def check_facts_with_ai(
 
 
 
+
+
+def extract_individual_facts(text: str) -> dict[str, Any]:
+    """
+    Decompose text into individual factual claims using Mistral.
+    
+    Args:
+        text: The text to decompose into individual facts
+        
+    Returns:
+        Dictionary with "facts" list containing individual claims to fact-check
+    """
+    ai_client = AICallClient()
+    
+    system_prompt = """You are a fact-checking assistant that breaks down text into individual verifiable claims.
+    
+Your task is to identify and extract all distinct factual claims from the given text.
+Each claim should be:
+- A single, specific fact that can be independently verified
+- Clear and unambiguous
+- Separated from opinions, speculation, or subjective statements
+
+Respond ONLY with valid JSON."""
+    
+    prompt = f"""Break down the following text into individual factual claims that should be fact-checked:
+
+"{text}"
+
+Return a JSON object with this structure:
+{{
+    "facts": [
+        "First independent factual claim",
+        "Second independent factual claim",
+        "Third independent factual claim"
+    ]
+}}
+
+Important:
+- Extract only verifiable facts, not opinions or subjective statements
+- Each fact should be a complete, standalone statement
+- If the text contains no verifiable facts, return an empty facts array
+- Maximum 5 facts per text"""
+    
+    result = ai_client._call_ai(system_prompt, prompt)
+    
+    # Ensure we have a valid facts array
+    if isinstance(result, dict) and "facts" in result:
+        facts = result.get("facts", [])
+        if isinstance(facts, list):
+            # Filter out empty strings
+            facts = [f.strip() for f in facts if isinstance(f, str) and f.strip()]
+            return {"facts": facts}
+    
+    # Fallback: return the original text as a single fact if parsing fails
+    logging.warning(f"Failed to parse facts from AI response: {result}")
+    return {"facts": [text] if text.strip() else []}
+

@@ -3,7 +3,7 @@ API endpoints for the fact checker plugin.
 """
 
 from typing import Annotated
-from api.utils.ai_calls import fact_preprocess
+from api.utils.ai_calls import extract_individual_facts
 from fastapi import Body, APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
@@ -27,68 +27,97 @@ async def fact_check_with_search(
     claim: Annotated[str, Body(embed=True, description="The fact/claim to verify")],
 ) -> JSONResponse:
     """
-    Full pipeline:
-    1. Search Core API for relevant academic papers
-    2. Search Qdrant for high-relevance snippets
-    3. Use AI to fact-check snippets against the claim
-    4. Return combined verdict
+    Full pipeline with preprocessing:
+    1. Preprocess: Break text into individual factual claims using Mistral
+    2. For each claim:
+       a. Search Core API for relevant academic papers
+       b. Search Qdrant for high-relevance snippets
+       c. Use AI to fact-check snippets against the claim
+    3. Return results:
+       - For now: only first fact (to avoid breaking frontend)
+       - TODO: Eventually stream all facts as they complete
     """
     try:
         service = create_fact_checker()
-
-        #TODO uncomment when we want to preprocess
-
-        # preprocessing_json = fact_preprocess(claim)
-        # if preprocessing_json["is_health_related"] == "false":
-        if False:
-            print("\n\n")
-            print("This fact is not related to health.")
-            print("\n\n")
-
-            print(f"Justification:\n\t{preprocessing_json["justification"]}")
-
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={"detail": "Fact is not health related"},
-            )
-        else:
-
-            result = service.check_claim(
-                original_claim=claim,
-                limit=LIMIT,
-            )
-
-            print(f"Agreement score: {result.agreement_score}")
-            print(f"Summary:         {result.summary}")
-
-            # print("\nIndividual results:")
-            # for r in result.individual_results:
-            #     score = f"[qdrant: {r['qdrant_score']:.3f}]" if r['qdrant_score'] else ""
-            #     print(f"  {score} {r['source_title']}: {r['result']} (confidence: {r['confidence']})")
-            #     print(f"Source snippet: {r['source_text']}")
-            #     print(f"Explanation: { r['explanation']}")
-
-
-            return JSONResponse(
+        
+        # ── Step 1: Extract individual facts from the provided text ──
+        print(f"\n=== Preprocessing: Extracting individual facts ===")
+        facts_result = extract_individual_facts(claim)
+        facts = facts_result.get("facts", [claim])  # Fallback to original if extraction fails
+        
+        if not facts:
+            facts = [claim]  # Ensure we have at least one fact
+        
+        print(f"Extracted {len(facts)} fact(s) to check:")
+        for i, fact in enumerate(facts, 1):
+            print(f"  {i}. {fact}")
+        
+        # ── Step 2: Fact-check each individual fact ──
+        all_results = []
+        
+        for fact_idx, individual_fact in enumerate(facts):
+            print(f"\n=== Checking fact {fact_idx + 1}/{len(facts)}: {individual_fact} ===")
+            try:
+                result = service.check_claim(
+                    original_claim=individual_fact,
+                    limit=LIMIT,
+                )
+                
+                all_results.append({
+                    "fact_index": fact_idx,
+                    "original_fact": individual_fact,
+                    "consensus": result.consensus,
+                    "final_verdict": result.final_verdict,
+                    "summary": result.summary,
+                    "agreement_score": result.agreement_score,
+                    "individual_results": result.individual_results,
+                    "articles_used": [
+                        {
+                            "title": article.title,
+                            "published_date": article.published_date,
+                            "authors": article.authors,
+                            "source": article.source,
+                            "url": article.url,
+                            "index": article.index,
+                        }
+                        for article in result.articles_used
+                    ],
+                })
+                
+                print(f"Verdict: {result.final_verdict} (confidence: {result.agreement_score:.2f})")
+                
+            except Exception as e:
+                print(f"Error checking fact {fact_idx + 1}: {str(e)}")
+                all_results.append({
+                    "fact_index": fact_idx,
+                    "original_fact": individual_fact,
+                    "error": str(e),
+                })
+        
+        # ── Step 3: Return results ──
+        # FOR NOW: Only send the first fact's result to avoid breaking frontend
+        # TODO: In future, implement streaming to send results as they complete
+        first_result = all_results[0] if all_results else {}
+        
+        response_content = {
+            "total_facts_extracted": len(facts),
+            "facts_checked": len([r for r in all_results if "error" not in r]),
+            "current_fact_index": 0,  # Frontend placeholder
+            "current_fact": facts[0] if facts else claim,
+            # === CURRENT RESULT (first fact only) ===
+            "consensus": first_result.get("consensus"),
+            "final_verdict": first_result.get("final_verdict"),
+            "summary": first_result.get("summary"),
+            "agreement_score": first_result.get("agreement_score"),
+            "individual_results": first_result.get("individual_results", []),
+            "articles_used": first_result.get("articles_used", []),
+            # === TODO: STREAMING ALL RESULTS ===
+            # "all_results": all_results,  # Uncomment when frontend ready for all results
+        }
+        
+        return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={
-                "consensus": result.consensus,
-                "final_verdict": result.final_verdict,
-                "summary": result.summary,
-                "agreement_score": result.agreement_score,
-                "individual_results": result.individual_results,
-                "articles_used": [
-                    {
-                        "title": article.title,
-                        "published_date": article.published_date,
-                        "authors": article.authors,
-                        "source": article.source,
-                        "url": article.url,
-                        "index": article.index,
-                    }
-                    for article in result.articles_used
-                ],
-            },
+            content=response_content,
         )
 
     except Exception as e:

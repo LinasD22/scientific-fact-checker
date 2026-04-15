@@ -12,3 +12,4 @@
 /app/api/server/models/
 .env
 backend/.env
+backend/qdrant_cache/collection/fact_checker_cache/storage.sqlite
