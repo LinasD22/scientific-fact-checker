@@ -48,4 +48,4 @@ from api.controllers import auth
 app.include_router(auth.router)
 
 if __name__ == "__main__":
-    os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8080")
+    os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8000") #8080
