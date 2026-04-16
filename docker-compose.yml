@@ -23,17 +23,19 @@ services:
       timeout: 5s
       retries: 5
 
-  api:
-    build: .
-    restart: always
-    env_file:
-      - ./backend/.env
-      - ./database/.env
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
+  #api:
+    #build: .
+    #restart: always
+    #env_file:
+    #  - ./backend/.env
+    #  - ./database/.env
+    #ports:
+    #  - "8000:8000"
+    #depends_on:
+    #  db:
+    #    condition: service_healthy
+    #command: gunicorn --bind 0.0.0.0:8000 app_root.wsgi:application
+    #CMD ["fastapi", "dev", "application.py", "--host", "0.0.0.0"]
 
   web:
     build: .
@@ -49,6 +51,18 @@ services:
         condition: service_healthy
 
 
+  tunnel:
+    env_file:
+      - ./database/.env
+    image: cloudflare/cloudflared
+    restart: always
+    command: tunnel run --token ${TUNNEL_TOKEN}
+
+
+volumes:
+  mariadb_data: {}
+
+
   # leave this commented only for local development, comment out for server deployment
   #web:
   #   build: .
@@ -61,15 +75,4 @@ services:
   #     - "8000:8000"
   #   depends_on:
   #     db:
-  #       condition: service_healthy
-
-  cloudflared:
-    env_file:
-      - ./database/.env
-    image: cloudflare/cloudflared
-    restart: always
-    command: tunnel run --token ${TUNNEL_TOKEN}
-
-
-volumes:
-  mariadb_data: {}
+  #

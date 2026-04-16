@@ -19,14 +19,21 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+    "chrome-extension://bemiflplbncbfocohghkahmaacmgnpho",
+    "http://localhost:*",
+    "https://api.healthfactchecker.site",
+    "https://healthfactchecker.site"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
-
 # Include fact-check routes
 app.include_router(fact_check_router, prefix="/api", tags=["fact-check"])
 

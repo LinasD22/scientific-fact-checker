@@ -59,9 +59,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function checkFact(claim) {
     // Determine your URL (use local for testing, ddns for production)
     //prod
-    //const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+    const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
     //local
-    const API_URL = "http://localhost:8080/api/fact-check/search";
+    //const API_URL = "http://localhost:8080/api/fact-check/search";
 
     // Retrieve the token from storage
     const { token } = await chrome.storage.local.get("token");

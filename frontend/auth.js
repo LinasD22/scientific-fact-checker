@@ -14,7 +14,7 @@ document.getElementById('authBtn').addEventListener('click', async () => {
     //public
     //const url = isLogin ? "http://manoapi.ddns.net:8000/auth/login" : "http://manoapi.ddns.net:8000/auth/register";
     //local
-    const url = isLogin ? "http://127.0.0.1:8000/auth/login" : "http://127.0.0.1:8000/auth/register";
+    const url = isLogin ? "http://api.healthfactchecker.site/auth/login" : "http://api.healthfactchecker.site/auth/register";
 
     // Submit logic (separate event listener)
     // Build the payload and headers based on whether it's login or registration
