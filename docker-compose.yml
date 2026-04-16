@@ -12,8 +12,8 @@ services:
     volumes:
       - mariadb_data:/var/lib/mysql  # keeps data alive after container restarts
     # add ports only if running locally for development
-    ports:
-      - "3306:3306"
+    #ports:
+    #  - "3306:3306"
     healthcheck:
       #for local development:
       #test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
@@ -22,21 +22,53 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-      
+
+  api:
+    build: .
+    restart: always
+    env_file:
+      - ./backend/.env
+      - ./database/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: .
+    restart: always
+    env_file:
+      - ./database/.env
+    working_dir: /app/database/app
+    command: python manage.py runserver 0.0.0.0:8001
+    ports:
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+
 
   # leave this commented only for local development, comment out for server deployment
-  web:
-     build: .
-     env_file:
-       - .env
-     command: python manage.py runserver 0.0.0.0:8000
-     volumes:
-       - ./app:/app
-     ports:
-       - "8000:8000"
-     depends_on:
-       db:
-         condition: service_healthy
+  #web:
+  #   build: .
+  #   env_file:
+  #     - .env
+  #   command: python manage.py runserver 0.0.0.0:8000
+  #   volumes:
+  #     - ./app:/app
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+
+  cloudflared:
+    env_file:
+      - ./database/.env
+    image: cloudflare/cloudflared
+    restart: always
+    command: tunnel run --token ${TUNNEL_TOKEN}
 
 
 volumes:

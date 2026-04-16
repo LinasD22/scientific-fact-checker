@@ -11,8 +11,9 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # 1. Copy the dedicated requirements from the root or backend
-COPY database/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt .
+COPY database/requirements.txt ./requirements-db.txt
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-db.txt
 
 # 2. Copy the FastAPI logic
 COPY backend/ ./backend
@@ -25,6 +26,5 @@ COPY database/ ./database
 WORKDIR /app/backend
 
 #CMD ["fastapi", "dev", "application.py", "--host", "0.0.0.0"]
-
 # Start the server
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app_root.wsgi:application"]
