@@ -89,18 +89,18 @@ function autoCheck() {
 			verdictEl.classList.add("false");
 		} else {
 			verdictEl.classList.add("uncertain");
+		}
 		resultCard.classList.remove("hidden");
-	}
 
 	document.getElementById("finalExplanation").textContent = response.explanation;
-    
+
 	const factsContainer = document.getElementById("individualFactsContainer");
     const factsList = document.getElementById("individualFactsList");
     factsList.innerHTML = ""; // Clear old individual facts
 
     if (response.individual_facts && response.individual_facts.length > 0) {
         factsContainer.style.display = "block";
-        
+
         response.individual_facts.forEach(fact => {
             const factDiv = document.createElement("div");
             factDiv.className = "fact-item";
@@ -124,7 +124,7 @@ function autoCheck() {
     } else {
         factsContainer.style.display = "none";
     }
-	
+
     // Score Ring
     updateScoreRing(response.score * 100 || 0);
 
@@ -168,7 +168,7 @@ function autoCheck() {
 
     if (response.articles_used && response.articles_used.length > 0) {
         sourceCount.textContent = response.articles_used.length;
-        
+
         response.articles_used.forEach(article => {
             const item = document.createElement("div");
             item.className = "article-item";
@@ -206,7 +206,7 @@ window.addEventListener("load", sendHeight);
 
 function updateScoreRing(score) {
   const circle = document.getElementById("ringProgress");
-  
+
   // Radius is 52. Circumference = 2 * PI * r
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
@@ -223,13 +223,13 @@ function updateScoreRing(score) {
   } else {
     circle.style.stroke = "var(--score-low)";
   }
-  
+
   animateScoreText(score);
 }
 
 function animateScoreText(targetScore) {
   const scoreText = document.getElementById("scoreValue");
-  
+
   if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
     scoreText.textContent = "!";
     return;
@@ -241,12 +241,12 @@ function animateScoreText(targetScore) {
 
   window.scoreInterval = setInterval(() => {
     current += Math.ceil(targetScore / 20); // Dynamic step size
-    
+
     if (current >= targetScore) {
       current = targetScore;
       clearInterval(window.scoreInterval);
     }
-    
+
     scoreText.textContent = current;
   }, 30);
 }
@@ -273,11 +273,11 @@ document.addEventListener('DOMContentLoaded', function() {
 				checkBtn.style.opacity = "1";
 				checkBtn.style.cursor = "pointer";
 			} else {
-				const count = (result.guestUsage && result.guestUsage.date === today) 
-						? result.guestUsage.count 
+				const count = (result.guestUsage && result.guestUsage.date === today)
+						? result.guestUsage.count
 						: 0;
 				const remaining = Math.max(0, LIMIT - count);
-		
+
 				userInfo.innerText = `Guest: ${remaining} uses left today`;
 				authBtnAction.innerText = "Login/Register";
 

@@ -88,7 +88,6 @@ async function checkFact(claim) {
         ]
     };
     */
-
     //prod
     const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
     //local
@@ -142,7 +141,7 @@ async function checkFact(claim) {
       consensus: data.consensus ?? "N/A",
       articles_used: data.articles_used ?? [],
 	  individual_facts: data.individual_facts ?? data.facts ?? []
-	  //individual_results: data.individual_results ?? [] // papildomai
+	  individual_results: data.individual_results ?? [] // papildomai
     };
 }
 
