@@ -360,6 +360,9 @@ def _aggregate_source_verdicts(
     )
     weighted_agreement = sources_supporting_verdict / total_weight if total_weight > 0 else 0.0
     
+    # Cap agreement score at 1.0 (100%)
+    weighted_agreement = min(weighted_agreement, 1.0)
+    
     return final_verdict, weighted_agreement, reliability_scores
 
 
