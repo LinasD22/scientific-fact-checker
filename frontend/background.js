@@ -57,7 +57,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Updated checkFact function with Token Support
 async function checkFact(claim) {
-    // Determine your URL (use local for testing, ddns for production)
+	// mock data
+	return {
+        verdict: "Mixed Accuracy",
+        explanation: "The provided text contains multiple claims. Some are supported by scientific literature, while others are currently debated or unsupported.",
+        score: 0.92, // 65% Confidence
+        consensus: "Divided",
+        articles_used: [
+            { title: "Journal of Nutrition 2024", url: "#" },
+            { title: "Health Science Review", url: "#" }
+        ],
+        // This is the specific data structure we just built the UI for
+        individual_facts: [
+            {
+                claim: "Vitamin C prevents 100% of common colds.",
+                verdict: "false",
+                explanation: "Meta-analyses show Vitamin C may reduce duration but does not prevent infection in the general population."
+            },
+            {
+                claim: "Regular exercise improves cardiovascular health.",
+                verdict: "true",
+                explanation: "Extensive longitudinal studies confirm a 30% reduction in heart disease risk for active individuals."
+            },
+            {
+                claim: "New herbal supplement 'Healtea' cures insomnia.",
+                verdict: "uncertain",
+                explanation: "Insufficient clinical trials exist to verify this specific supplement's efficacy."
+            }
+        ]
+    };
+
     //prod
     const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
     //local
@@ -66,16 +95,34 @@ async function checkFact(claim) {
     // Retrieve the token from storage
     const { token } = await chrome.storage.local.get("token");
 
-    // If no token exists, you might want to stop here and warn the user
     if (!token) {
-        return { verdict: "Unauthorized", explanation: "Please login first." };
+        const LIMIT = 3; // Max daily uses for guests
+        const today = new Date().toLocaleDateString(); // e.g., "4/16/2026"
+
+        let { guestUsage } = await chrome.storage.local.get("guestUsage");
+
+        // Reset counter if it's a new day or doesn't exist
+        if (!guestUsage || guestUsage.date !== today) {
+            guestUsage = { date: today, count: 0 };
+        }
+
+        if (guestUsage.count >= LIMIT) {
+            return {
+                verdict: "Limit Reached",
+                explanation: "You have used your 3 free daily checks. Please login or register for unlimited access!"
+            };
+        }
+
+        // Increment and save guest usage
+        guestUsage.count++;
+        await chrome.storage.local.set({ guestUsage });
     }
 
     const response = await fetch(API_URL, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}` // This is the merge fix
+            ...(token && { "Authorization": `Bearer ${token}` }) // Only add header if token exists
         },
         body: JSON.stringify({ claim: claim })
     });
@@ -86,15 +133,15 @@ async function checkFact(claim) {
 
     const data = await response.json();
 
-    // We return the full object or ensure key fields are mapped
     return {
       verdict: data.final_verdict ?? "unverifiable",
       explanation: data.summary ?? "",
       score: typeof data.agreement_score === "number" ? data.agreement_score : 0,
-      consensus: data.consensus ?? "N/A", // Added this
-      articles_used: data.articles_used ?? [], // Added this
-    individual_results: data.individual_results ?? [] // papildomai
-  };
+      consensus: data.consensus ?? "N/A",
+      articles_used: data.articles_used ?? [],
+	  individual_facts: data.individual_facts ?? data.facts ?? []
+	  individual_results: data.individual_results ?? [] // papildomai
+    };
 }
 
 // Simplified action listener

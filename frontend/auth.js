@@ -1,5 +1,12 @@
 let isLogin = true;
 
+// Sync theme for auth page
+chrome.storage.local.get("theme", (data) => {
+  if (data.theme === "dark") {
+    document.body.classList.add("dark-mode");
+  }
+});
+
 document.getElementById('toggleLink').addEventListener('click', () => {
     isLogin = !isLogin;
     document.getElementById('title').innerText = isLogin ? "Login" : "Register";

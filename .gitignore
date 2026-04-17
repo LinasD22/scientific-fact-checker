@@ -10,4 +10,7 @@
 /__pycache__/
 *.pyc
 .env
-/backend/qdrant_cache/
+backend/.env
+/backend/qdrant_cache
+backend/api/utils/qdrant_cache
+/venv
