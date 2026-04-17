@@ -41,6 +41,7 @@ async def fact_check_with_search(
         service = create_fact_checker()
         
         # ── Step 1: Extract individual facts from the provided text ──
+        print(f"\n=== ORIGINAL WHOLE CLAIM: {claim} ===")
         print(f"\n=== Preprocessing: Extracting individual facts ===")
         facts_result = extract_individual_facts(claim)
         print(f"\n=== FACT RESULTS COUNT AFTER EXTRACTING ===")
