@@ -58,6 +58,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Updated checkFact function with Token Support
 async function checkFact(claim) {
 	// mock data
+	/*
 	return {
         verdict: "Mixed Accuracy",
         explanation: "The provided text contains multiple claims. Some are supported by scientific literature, while others are currently debated or unsupported.",
@@ -86,6 +87,7 @@ async function checkFact(claim) {
             }
         ]
     };
+    */
 
     //prod
     const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
@@ -140,7 +142,7 @@ async function checkFact(claim) {
       consensus: data.consensus ?? "N/A",
       articles_used: data.articles_used ?? [],
 	  individual_facts: data.individual_facts ?? data.facts ?? []
-	  individual_results: data.individual_results ?? [] // papildomai
+	  //individual_results: data.individual_results ?? [] // papildomai
     };
 }
 
