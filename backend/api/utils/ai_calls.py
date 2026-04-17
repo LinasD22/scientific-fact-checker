@@ -104,7 +104,8 @@ class AICallClient:
     """Fact-checking AI client. Switch provider via AI_PROVIDER .env variable."""
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None):
-        self.provider = os.getenv("AI_PROVIDER", "local").lower()
+        self.provider = os.getenv("AI_PROVIDER", "mistral").lower()
+        self.api_key = api_key or os.getenv("MISTRAL_API_KEY", "")
         if self.provider not in _PROVIDERS:
             raise ValueError(f"Unknown AI_PROVIDER '{self.provider}'. "
                              f"Choose from: {list(_PROVIDERS)}")
@@ -114,7 +115,7 @@ class AICallClient:
         content = _PROVIDERS[self.provider](system_prompt, user_prompt).strip()
 
         # Log the raw content for debugging
-        logging.info(f"AI Response (first 500 chars): {content[:500]}")
+        logging.info(f"AI Response: {content}")
 
         # Strip markdown code blocks if present
         if content.startswith("```"):
@@ -158,7 +159,7 @@ class AICallClient:
         content = _PROVIDERS[self.provider](system_prompt, user_prompt).strip()
 
         # Log the raw content for debugging
-        logging.info(f"AI Response (first 500 chars): {content[:500]}")
+        logging.info(f"AI Response: {content}")
 
         # Strip markdown code blocks if present
         if content.startswith("```"):
@@ -485,7 +486,7 @@ Important:
 - Maximum 5 facts per text"""
     
     result = ai_client._call_ai_extract_facts(system_prompt, prompt)
-    
+
     # Ensure we have a valid facts array
     if isinstance(result, dict) and "facts" in result:
         facts = result.get("facts", [])

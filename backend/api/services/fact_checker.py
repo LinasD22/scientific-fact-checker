@@ -240,6 +240,7 @@ class FactCheckerService:
         query: str,
         limit_per_db: int = 10
     ) -> tuple[list[dict[str, Any]], list[str], str | None]:
+        print(f"=== SEARCH MULTIPLE DATABASES ===")
         """Search both Core and PubMed databases in parallel.
         
         Uses expanded query for Core API (handles complex boolean queries),
@@ -332,15 +333,17 @@ class FactCheckerService:
         original_claim: str,
         query: str | None = None,
         limit: int = 20,
-        global_search_threshold: float = 0.7,
+        global_search_threshold: float = 0.72,
         global_min_results: int = 10,
     ) -> FactCheckResult:
         search_query = query or original_claim
 
+        logging.info(f"ALL PARAMETERS limit {limit} global search threshold {global_search_threshold} global min results {global_min_results}")
+
         # ── Step 1: Bandyk global Qdrant search (greita, be API calls) ──────────
         global_snippets = self.vector_embed_client.search_global(
             claim=original_claim,
-            top_k=20,
+            top_k=8,
             min_score=global_search_threshold,
         )
 
@@ -424,8 +427,12 @@ class FactCheckerService:
             )
             for w in unique_works
         ]
-        works_with_text = [w for w in works if w.full_text or w.abstract]
 
+
+
+
+        works_with_text = [w for w in works if w.full_text or w.abstract]
+        logging.info(f"works: {len(works)}, works_with_text: {len(works_with_text)}")
         # Create lookup from unique_works to get metadata by title
         unique_works_lookup = {}
         for w in unique_works:
@@ -460,7 +467,7 @@ class FactCheckerService:
         snippets = self.vector_embed_client.search_snippets_from_texts(
             claim=original_claim,
             works=works_for_qdrant,
-            top_k=10,
+            top_k=5,
             works_metadata=works_metadata,
         )
 

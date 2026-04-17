@@ -13,12 +13,18 @@ from fastapi import FastAPI
 from api.controllers.fact_check import router as fact_check_router
 
 # expose FastAPI application at module level so CLI can discover it
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)-8s %(name)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+
 app = FastAPI(
     title="Scientific Fact Checker API",
     description="AI-powered fact-checking against academic papers",
     version="1.0.0"
 )
-
 
 
 app.add_middleware(
