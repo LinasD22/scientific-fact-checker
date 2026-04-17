@@ -4,7 +4,30 @@ const btnText = document.getElementById("btnText");
 const claimInput = document.getElementById("claimInput");
 const resultCard = document.getElementById("resultCard");
 
-// 1. Load selected text but DO NOT auto-check
+const themeToggle = document.getElementById("themeToggle");
+
+// Check for saved theme on load
+chrome.storage.local.get("theme", (data) => {
+  if (data.theme === "dark") {
+    document.body.classList.add("dark-mode");
+    themeToggle.textContent = "☀️";
+  } else {
+    themeToggle.textContent = "🌙";
+  }
+});
+
+// Toggle logic
+themeToggle.addEventListener("click", () => {
+  const isDark = document.body.classList.toggle("dark-mode");
+  
+  // Update button icon
+  themeToggle.textContent = isDark ? "☀️" : "🌙";
+  
+  // Save preference
+  chrome.storage.local.set({ theme: isDark ? "dark" : "light" });
+});
+
+// Load selected text but DO NOT auto-check
 chrome.storage.local.get("lastClaim", (data) => {
   if (data.lastClaim) {
     claimInput.value = data.lastClaim;
@@ -17,14 +40,14 @@ chrome.storage.local.get("lastClaim", (data) => {
   }
 });
 
-// 2. Clear Button Logic
+// Clear Button Logic
 clearBtn.addEventListener("click", () => {
   claimInput.value = "";
   resultCard.classList.add("hidden");
   sendHeight();
 });
 
-// 3. Manual Check Logic
+// Manual Check Logic
 checkBtn.addEventListener("click", autoCheck);
 
 function autoCheck() {
@@ -38,32 +61,74 @@ function autoCheck() {
 
   chrome.runtime.sendMessage(
     { type: "FACT_CHECK", claim: claim },
-(response) => {
-    checkBtn.disabled = false;
-    btnText.textContent = "Check Fact";
-    resultCard.classList.remove("hidden");
+	(response) => {
+		checkBtn.disabled = false;
+		btnText.textContent = "Check Fact";
+		// Check if the response indicates the limit was hit
+		if (response.verdict === "Limit Reached") {
+			updateUI(); // Trigger the UI refresh to lock the button
+			resultCard.classList.remove("hidden");
+			document.getElementById("finalVerdict").textContent = "Limit Reached";
+			document.getElementById("finalVerdict").className = "verdict uncertain";
+			document.getElementById("finalExplanation").textContent = response.explanation;
+			return; 
+		}
 
-    // 1. Basic Info
-    const verdictEl = document.getElementById("finalVerdict");
-const verdictText = (response.verdict || "").toLowerCase();
+		// Basic Info
+		const verdictEl = document.getElementById("finalVerdict");
+		const verdictText = (response.verdict || "").toLowerCase();
 
-verdictEl.textContent = response.verdict;
-verdictEl.className = "verdict"; // Reset classes
+		verdictEl.textContent = response.verdict;
+		verdictEl.className = "verdict"; // Reset classes
 
-if (verdictText.includes("supported") || verdictText.includes("true")) {
-    verdictEl.classList.add("true");
-} else if (verdictText.includes("refuted") || verdictText.includes("false")) {
-    verdictEl.classList.add("false");
-} else {
-    verdictEl.classList.add("uncertain");
-}
+		if (verdictText.includes("limit")) {
+			verdictEl.classList.add("uncertain"); // Using your yellow theme
+		} else if (verdictText.includes("supported") || verdictText.includes("true")) {
+			verdictEl.classList.add("true");
+		} else if (verdictText.includes("refuted") || verdictText.includes("false")) {
+			verdictEl.classList.add("false");
+		} else {
+			verdictEl.classList.add("uncertain");
+		resultCard.classList.remove("hidden");
+	}
 
-document.getElementById("finalExplanation").textContent = response.explanation;
+	document.getElementById("finalExplanation").textContent = response.explanation;
     
-    // 2. Score Ring
+	const factsContainer = document.getElementById("individualFactsContainer");
+    const factsList = document.getElementById("individualFactsList");
+    factsList.innerHTML = ""; // Clear old individual facts
+
+    if (response.individual_facts && response.individual_facts.length > 0) {
+        factsContainer.style.display = "block";
+        
+        response.individual_facts.forEach(fact => {
+            const factDiv = document.createElement("div");
+            factDiv.className = "fact-item";
+
+            // Determine color class for the individual verdict
+            let vClass = "uncertain";
+            const vText = (fact.verdict || fact.status || "").toLowerCase();
+            if (vText.includes("supported") || vText.includes("true")) vClass = "true";
+            else if (vText.includes("refuted") || vText.includes("false")) vClass = "false";
+
+            // Build the mini-card
+            factDiv.innerHTML = `
+                <div class="fact-claim">"${fact.claim}"</div>
+                <div style="margin-bottom: 6px;">
+                    <span class="fact-verdict ${vClass}">${fact.verdict || "Uncertain"}</span>
+                </div>
+                <div class="fact-explanation">${fact.explanation || fact.summary || ""}</div>
+            `;
+            factsList.appendChild(factDiv);
+        });
+    } else {
+        factsContainer.style.display = "none";
+    }
+	
+    // Score Ring
     updateScoreRing(response.score * 100 || 0);
 
-    // 3. Populate Articles
+    // Populate Articles
     const articlesList = document.getElementById("articlesList");
     const sourceCount = document.getElementById("sourceCount");
     articlesList.innerHTML = ""; // Clear old results
@@ -87,10 +152,10 @@ document.getElementById("finalExplanation").textContent = response.explanation;
         articlesList.innerHTML = "<p class='article-meta'>No specific articles cited.</p>";
     }
 
-    // 4. Raw Debug for Testing
+    // Raw Debug for Testing
     document.getElementById("rawResponse").textContent = JSON.stringify(response, null, 2);
 
-    // 5. Adjust Panel Height
+    // Adjust Panel Height
     setTimeout(sendHeight, 100);
 }
   );
@@ -162,16 +227,41 @@ document.addEventListener('DOMContentLoaded', function() {
     const userInfo = document.getElementById('userInfo');
 
     function updateUI() {
-        chrome.storage.local.get(['token', 'userEmail'], (result) => {
-            if (result.token) {
-                userInfo.innerText = "Logged in as " + result.userEmail;
-                authBtnAction.innerText = "Logout";
-            } else {
-                userInfo.innerText = "Not logged in";
-                authBtnAction.innerText = "Login/Register";
-            }
-        });
-    }
+		chrome.storage.local.get(['token', 'userEmail', 'guestUsage'], (result) => {
+			const today = new Date().toLocaleDateString();
+			const checkBtn = document.getElementById("checkBtn");
+			const btnText = document.getElementById("btnText");
+			const LIMIT = 3;
+
+			if (result.token) {
+				userInfo.innerText = "Logged in as " + result.userEmail;
+				authBtnAction.innerText = "Logout";
+				checkBtn.disabled = false;
+				checkBtn.style.opacity = "1";
+				checkBtn.style.cursor = "pointer";
+			} else {
+				const count = (result.guestUsage && result.guestUsage.date === today) 
+						? result.guestUsage.count 
+						: 0;
+				const remaining = Math.max(0, LIMIT - count);
+		
+				userInfo.innerText = `Guest: ${remaining} uses left today`;
+				authBtnAction.innerText = "Login/Register";
+
+				if (remaining <= 0) {
+					checkBtn.disabled = true;
+					btnText.textContent = "Daily Limit Reached"; // Updates text immediately
+					checkBtn.style.opacity = "0.6";
+					checkBtn.style.cursor = "not-allowed";
+				} else {
+					checkBtn.disabled = false;
+					btnText.textContent = "Check Fact";
+					checkBtn.style.opacity = "1";
+					checkBtn.style.cursor = "pointer";
+				}
+			}
+		});
+	}
 
     authBtnAction.addEventListener('click', () => {
         chrome.storage.local.get(['token'], (result) => {
