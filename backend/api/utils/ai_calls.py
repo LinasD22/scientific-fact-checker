@@ -153,6 +153,33 @@ class AICallClient:
                 "raw_response": content
             }
 
+    def _call_ai_extract_facts(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        """Call AI for fact extraction. Returns {"facts": [...]} format."""
+        content = _PROVIDERS[self.provider](system_prompt, user_prompt).strip()
+
+        # Log the raw content for debugging
+        logging.info(f"AI Response (first 500 chars): {content[:500]}")
+
+        # Strip markdown code blocks if present
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+
+        try:
+            parsed = json.loads(content)
+            # For fact extraction, we expect "facts" key
+            if "facts" in parsed and isinstance(parsed["facts"], list):
+                return parsed
+            else:
+                logging.error(f"AI response missing 'facts' key. Response: {content[:500]}")
+                return {"facts": []}
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse AI response as JSON: {e}")
+            logging.error(f"Raw content: {content[:1000]}")
+            return {"facts": []}
+
     def check_all_facts(
         self,
         original_claim: str,
@@ -454,7 +481,7 @@ Important:
 - If the text contains no verifiable facts, return an empty facts array
 - Maximum 5 facts per text"""
     
-    result = ai_client._call_ai(system_prompt, prompt)
+    result = ai_client._call_ai_extract_facts(system_prompt, prompt)
     
     # Ensure we have a valid facts array
     if isinstance(result, dict) and "facts" in result:
