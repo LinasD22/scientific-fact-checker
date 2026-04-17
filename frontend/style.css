@@ -501,6 +501,8 @@ body.dark-mode .container::-webkit-scrollbar-thumb {
   line-height: 1.5;
   margin-top: 6px;
 }
+
+
 /*new*/
 .evidence-item {
     border: 1px solid var(--border);

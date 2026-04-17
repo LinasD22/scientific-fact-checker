@@ -43,6 +43,8 @@ async def fact_check_with_search(
         # ── Step 1: Extract individual facts from the provided text ──
         print(f"\n=== Preprocessing: Extracting individual facts ===")
         facts_result = extract_individual_facts(claim)
+        print(f"\n=== FACT RESULTS COUNT AFTER EXTRACTING ===")
+        print(f"{len(facts_result)} facts")
         facts = facts_result.get("facts", [claim])  # Fallback to original if extraction fails
         
         if not facts:

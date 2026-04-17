@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir -r requirements.txt -r requirements-db.txt
 COPY backend/ ./backend
 COPY database/ ./database
 
-CMD ["fastapi", "dev", "application.py", "--host", "0.0.0.0"]
+#CMD ["fastapi", "dev", "application.py", "--host", "0.0.0.0"]

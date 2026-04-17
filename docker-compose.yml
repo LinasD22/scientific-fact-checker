@@ -3,17 +3,17 @@ services:
     image: mariadb:10.11
     restart: always
     environment:
-      MYSQL_DATABASE: fact_checker_db
-      MYSQL_USER: user
-      MYSQL_PASSWORD: K630
-      MYSQL_ROOT_PASSWORD: K630_2
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     env_file:
       - ./database/.env
     volumes:
       - mariadb_data:/var/lib/mysql  # keeps data alive after container restarts
     # add ports only if running locally for development
-    #ports:
-    #  - "3306:3306"
+    ports:
+      - "3306:3306"
     healthcheck:
       #for local development:
       #test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
@@ -23,19 +23,18 @@ services:
       timeout: 5s
       retries: 5
 
-  #api:
-    #build: .
-    #restart: always
-    #env_file:
-    #  - ./backend/.env
-    #  - ./database/.env
-    #ports:
-    #  - "8000:8000"
-    #depends_on:
-    #  db:
-    #    condition: service_healthy
-    #command: gunicorn --bind 0.0.0.0:8000 app_root.wsgi:application
-    #CMD ["fastapi", "dev", "application.py", "--host", "0.0.0.0"]
+#  api:
+#    build: .
+#    restart: always
+#    env_file:
+#      - ./backend/.env
+#      - ./database/.env
+#    ports:
+#      - "8000:8000"
+#    depends_on:
+#      db:
+#        condition: service_healthy
+#    command: uvicorn application:app --host 0.0.0.0 --port 8000
 
   web:
     build: .
