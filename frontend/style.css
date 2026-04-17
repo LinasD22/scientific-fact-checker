@@ -411,16 +411,18 @@ body.dark-mode .container::-webkit-scrollbar-thumb {
   width: 32px;
   height: 32px;
   margin: 0;
-  position: absolute;
-  top: 10px;    /* Uniform spacing from top */
-  right: 10px;  /* Uniform spacing from right */
+  position: fixed; 
+  top: 10px;    
+  right: 10px;  
   box-shadow: none;
-  z-index: 100;
+  z-index: 1000;
   cursor: pointer;
   font-size: 18px;
   display: flex;
   justify-content: center;
   align-items: center;
+  background: var(--bg-color);
+  border-radius: 50%;
 }
 
 #closePanelBtn:hover {
@@ -500,4 +502,102 @@ body.dark-mode .container::-webkit-scrollbar-thumb {
   color: var(--text-muted);
   line-height: 1.5;
   margin-top: 6px;
+}
+
+.fact-top-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.mini-ring-container {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.mini-score-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.fact-sources-list {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.mini-source {
+  display: block;
+  font-size: 11px;
+  color: var(--primary);
+  text-decoration: none;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.badge-label {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.score-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: white;
+  flex-shrink: 0;
+  min-width: 38px;
+}
+
+/* Badge color logic */
+.score-badge.score-high {
+  background-color: var(--score-high);
+}
+
+.score-badge.score-mid {
+  background-color: var(--score-mid);
+  color: #000; /* Dark text for better readability on yellow */
+}
+
+.score-badge.score-low {
+  background-color: var(--score-low);
+}
+
+/* Adjust top row spacing */
+.fact-top-row {
+  display: flex;
+  gap: 10px;
+  align-items: center; /* Centers badge with the start of the text */
+  margin-bottom: 10px;
+}
+
+.fact-claim {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-main);
 }
