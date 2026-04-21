@@ -38,7 +38,7 @@ async def fact_check_with_search(
        - New: all_results array with complete results for each fact
     """
     try:
-        service = create_fact_checker()
+        service = get_fact_checker()
         
         # ── Step 1: Extract individual facts from the provided text ──
         print(f"\n=== ORIGINAL WHOLE CLAIM: {claim} ===")
@@ -124,6 +124,9 @@ async def fact_check_with_search(
         )
 
     except Exception as e:
+        import traceback
+        import logging
+        logging.error(f"Fact-check search failed: {e}\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Fact-check failed: {str(e)}",
