@@ -6,7 +6,15 @@ from pathlib import Path
 
 # Load .env file first, before any imports that depend on it
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent / ".env")
+#load_dotenv(Path(__file__).parent / ".env")
+
+env_path = Path(__file__).resolve().parent / '.env'
+
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path, override=True)
+    print(f"test_preprocessing.py Success: Loaded .env from {env_path}")
+else:
+    print(f"test_preprocessing.py Error: Could not find .env at {env_path}")
 
 # Setup path
 sys.path.insert(0, str(Path(__file__).parent.parent))

@@ -5,9 +5,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 
-# nuskaito app/..env
+# nuskaito app/.env
 sys.path.insert(0, str(Path(__file__).parent.parent))
-load_dotenv(Path(__file__).parent / ".env")  # nuskaito app/.env
+env_path = Path(__file__).parent / ".env"
+
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path, override=True)
+    print(f"application.py Success: Loaded .env from {env_path}")
+else:
+    print(f"application.py Error: Could not find .env at {env_path}")
+
 
 from fastapi import FastAPI
 from api.controllers.fact_check import router as fact_check_router

@@ -29,7 +29,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent / ".env")
+env_path = Path(__file__).parent / ".env"
+
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path, override=True)
+    print(f"Success: Loaded .env from {env_path}")
+else:
+    print(f"Error: Could not find .env at {env_path}")
+
 
 from api.utils.pubmed_api_client import PubMedAPIClient
 from api.utils.qdrant_vector_client import QdrantVectorClient
