@@ -40,10 +40,10 @@ Projektas palaiko kelis paleidimo režimus. Pasirinkite pagal poreikį.
 
 ## Režimas A – Serverio DB + Serverio API
 
-### `scientifick-fact-checker/.env`
+### `scientific-fact-checker/database/.env`
 ```env
-CF_CLIENT_ID=<jūsų_client_id>
-CF_CLIENT_SECRET=<jūsų_client_secret>
+DB_HOST=localhost
+DB_PORT=3307
 ```
 
 ### `docker-compose.yml` – įjunkite tik `cf-tunnel-db`
@@ -86,13 +86,6 @@ docker compose up cf-tunnel-db
 
 ### `scientific-fact-checker/database/.env`
 ```env
-# Database
-DB_NAME=fact_checker_db
-DB_USER=user
-DB_PASSWORD=K630
-DB_ROOT_PASSWORD=K630_2
-
-# DB ryšys (lokalus)
 DB_HOST=localhost
 DB_PORT=3306
 ```
@@ -142,18 +135,10 @@ uvicorn application:app --host 0.0.0.0 --port 8000 --reload
 
 ## Režimas C – Serverio DB + Lokalus API
 
-### `scientific-fact-checker/.env`
+### `scientific-fact-checker/database/.env`
 ```env
-# Cloudflare tunnel
-CF_CLIENT_ID=<jūsų_client_id>
-CF_CLIENT_SECRET=<jūsų_client_secret>
-
-# DB ryšys per tunelį
 DB_HOST=localhost
 DB_PORT=3307
-DB_NAME=fact_checker_db
-DB_USER=user
-DB_PASSWORD=K630
 ```
 
 ### `docker-compose.yml` – įjunkite tik `cf-tunnel-db`
