@@ -4,14 +4,12 @@ from dotenv import load_dotenv
 from sqlmodel import create_engine, Session, SQLModel, Field
 
 env_path = Path(__file__).resolve().parent.parent.parent.parent / 'database'/'.env'
-#load_dotenv(dotenv_path=env_path)
 
-# Safety check
 if env_path.exists():
     load_dotenv(dotenv_path=env_path, override=True)
-    print(f"Success: Loaded .env from {env_path}")
+    print(f"database.py Success: Loaded .env from {env_path}")
 else:
-    print(f"Error: Could not find .env at {env_path}")
+    print(f"database.py Error: Could not find .env at {env_path}")
 
 
 # Build URL using your .env variables

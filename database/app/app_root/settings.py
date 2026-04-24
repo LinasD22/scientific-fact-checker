@@ -80,8 +80,8 @@ DATABASES = {
         'NAME': os.environ.get('DB_NAME'),
         'USER': os.environ.get('DB_USER'),
         'PASSWORD': os.environ.get('DB_PASSWORD'),
-        'HOST': os.environ.get('DB_HOST', 'db'),
-        'PORT': os.environ.get('DB_PORT', '3307'),
+        'HOST': os.environ.get('DB_HOST', 'db'), #127.0.0.1
+        'PORT': os.environ.get('DB_PORT', '3306'), #3307
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         },
@@ -129,6 +129,8 @@ STATIC_URL = 'static/'
 
 CSRF_TRUSTED_ORIGINS = [
     'https://healthfactchecker.site',
+    'http://localhost:8001',
+    'http://127.0.0.1:8001'
     'http://localhost:8000',
     'http://127.0.0.1:8000'
 ]

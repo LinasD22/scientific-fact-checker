@@ -19,14 +19,24 @@ import os
 import re
 import sys
 import time
+from mesh import *
 from datetime import datetime
 from pathlib import Path
+
+from MeshParser import get_optimal_topics
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent / ".env")
+env_path = Path(__file__).parent / ".env"
+
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path, override=True)
+    print(f"Success: Loaded .env from {env_path}")
+else:
+    print(f"Error: Could not find .env at {env_path}")
+
 
 from api.utils.pubmed_api_client import PubMedAPIClient
 from api.utils.qdrant_vector_client import QdrantVectorClient
@@ -56,44 +66,8 @@ DELAY_BETWEEN_ARTICLES = float(os.getenv("INDEXER_ARTICLE_DELAY", "0.5"))
 # Progress failo kelias
 PROGRESS_FILE = os.getenv("INDEXER_PROGRESS_FILE", "indexer_progress.json")
 
-TOPICS = [
-    # Neurologiniai
-    "migraine headache prevalence",
-    "migraine disability treatment",
-    "tension headache management",
-    "cluster headache",
 
-    # Širdies ir kraujagyslių
-    "hypertension treatment outcomes",
-    "cardiovascular disease prevention",
-    "heart failure management",
-    "stroke prevention risk factors",
-
-    # Metaboliniai
-    "diabetes type 2 management",
-    "obesity treatment outcomes",
-    "metabolic syndrome intervention",
-
-    # Psichinė sveikata
-    "depression treatment efficacy",
-    "anxiety disorder treatment",
-    "mental health comorbidities",
-
-    # Onkologija
-    "cancer screening prevention",
-    "breast cancer treatment",
-    "lung cancer outcomes",
-
-    # Kvėpavimo
-    "asthma management adults",
-    "COPD treatment outcomes",
-    "sleep apnea treatment",
-
-    # Skausmas
-    "chronic pain management",
-    "fibromyalgia treatment",
-    "back pain intervention",
-]
+TOPICS = []
 
 
 # ── Text cleaning ─────────────────────────────────────────────────────────────
@@ -258,7 +232,7 @@ def run_indexer(once: bool = True, interval: int = 3600) -> None:
     """
     pubmed = PubMedAPIClient()
     qdrant = QdrantVectorClient()
-
+    TOPICS = get_optimal_topics()
     log.info("Background indexer paleistas")
     log.info(f"  Topics: {len(TOPICS)}")
     log.info(f"  Straipsnių per topic: {ARTICLES_PER_TOPIC}")

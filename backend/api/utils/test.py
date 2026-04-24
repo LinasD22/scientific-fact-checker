@@ -14,7 +14,7 @@ from api.services.fact_checker import create_fact_checker
 from api.utils.ai_calls import fact_preprocess
 
 
-claim="Migraines are a leading cause of disability worldwide." # pvz Vaccines cause autism
+claim="VACCINES CAUSE AUTISM!" # pvz Vaccines cause autism
 
 
 
@@ -47,7 +47,6 @@ else:
     print("\n=== Test 2: Full pipeline (Core API → Qdrant → AI) ===")
     result = service.check_claim(
         original_claim=claim, # pvz Vaccines cause autism
-        limit=5,
     )
 
     print(f"Works searched:  {result.works_searched}")

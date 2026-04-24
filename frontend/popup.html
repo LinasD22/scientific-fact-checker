@@ -11,6 +11,9 @@
     <header>
       <div class="logo-circle">⚕️</div>
       <h1>MediCheck</h1>
+	  <button id="themeToggle" style="width: auto; margin: 0; padding: 5px; background: none; box-shadow: none; font-size: 16px; margin-left: auto;">
+		🌙
+	  </button>
     </header>
 
     <div id="authContainer" style="padding: 10px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
@@ -52,12 +55,24 @@
   
   <div id="finalExplanation" class="explanation"></div>
 
+  <div id="individualFactsContainer" style="display: none;">
+    <hr class="divider">
+    <div style="font-size: 13px; font-weight: 700; text-align: left; margin-bottom: 10px;">Individual Claims</div>
+    <div id="individualFactsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+  </div>
+
   <hr class="divider">
 
   <details class="evidence-section">
     <summary>Sources Used (<span id="sourceCount">0</span>)</summary>
     <div id="articlesList" class="articles-container"></div>
+              <div class="section-header">Evidence by Source</div>
+        <div id="evidenceList"></div>
+
+
   </details>
+
+
 
   <details class="debug-section">
     <summary>Raw JSON Response</summary>

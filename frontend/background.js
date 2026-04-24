@@ -58,21 +58,42 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Updated checkFact function with Token Support
 async function checkFact(claim) {
     // Determine your URL (use local for testing, ddns for production)
-    const API_URL = "http://manoapi.ddns.net:8000/api/fact-check/search";
+    //server
+    //const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+    //local
+    const API_URL = "http://localhost:8000/api/fact-check/search";
 
     // Retrieve the token from storage
     const { token } = await chrome.storage.local.get("token");
 
-    // If no token exists, you might want to stop here and warn the user
     if (!token) {
-        return { verdict: "Unauthorized", explanation: "Please login first." };
+        const LIMIT = 3; // Max daily uses for guests
+        const today = new Date().toLocaleDateString(); // e.g., "4/16/2026"
+
+        let { guestUsage } = await chrome.storage.local.get("guestUsage");
+
+        // Reset counter if it's a new day or doesn't exist
+        if (!guestUsage || guestUsage.date !== today) {
+            guestUsage = { date: today, count: 0 };
+        }
+
+        if (guestUsage.count >= LIMIT) {
+            return {
+                verdict: "Limit Reached",
+                explanation: "You have used your 3 free daily checks. Please login or register for unlimited access!"
+            };
+        }
+
+        // Increment and save guest usage
+        guestUsage.count++;
+        await chrome.storage.local.set({ guestUsage });
     }
 
     const response = await fetch(API_URL, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}` // This is the merge fix
+            ...(token && { "Authorization": `Bearer ${token}` }) // Only add header if token exists
         },
         body: JSON.stringify({ claim: claim })
     });
@@ -83,13 +104,22 @@ async function checkFact(claim) {
 
     const data = await response.json();
 
-    // We return the full object or ensure key fields are mapped
+    const mappedFacts = (data.all_results || []).map(res => ({
+        claim: res.original_fact || "Unknown Claim",
+        verdict: res.final_verdict || "unverifiable",
+        explanation: res.summary || "",
+        score: typeof res.agreement_score === "number" ? res.agreement_score : 0,
+        sources: res.articles_used || []
+    }));
+
     return {
       verdict: data.final_verdict ?? "unverifiable",
       explanation: data.summary ?? "",
       score: typeof data.agreement_score === "number" ? data.agreement_score : 0,
-      consensus: data.consensus ?? "N/A", // Added this
-      articles_used: data.articles_used ?? [] // Added this
+      consensus: data.consensus ?? "N/A",
+      articles_used: data.articles_used ?? [],
+      // Use the mapped array here
+      individual_facts: mappedFacts
     };
 }
 
