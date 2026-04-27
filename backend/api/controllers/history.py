@@ -15,11 +15,38 @@ def get_session():
 
 @router.get("/user/{user_id}")
 def get_user_history(user_id: int, session: Session = Depends(get_session)):
+    # TODO right now we return max 3 we could increase this with pro plan
     statement = select(Query).where(Query.user_id == user_id).order_by(Query.query_date.desc()).limit(3)
+    
     results = session.exec(statement).all()
     if not results:
         raise HTTPException(status_code=404, detail="No queries found for this user")
     else:
         return {
-            "queries": [q.query_text for q in results],
+            "queries": [{
+                "query_id": q.id,
+                "claim": q.claim_text,
+                "final_verdict": q.final_verdict,
+                "claim_date": q.claim_date
+            } for q in results],
         }
+
+@router.get("/user/{user_id}/query/{query_id}")
+def get_user_history(user_id: int, query_id: int, session: Session = Depends(get_session)):
+    statement = select(Query).where(Query.user_id == user_id).order_by(Query.query_date.desc()).limit(3)
+    
+    results = session.exec(statement).all()
+    if not results:
+        raise HTTPException(status_code=404, detail="No queries found for this user")
+    else:
+
+        history = []
+        for q in results;
+            history.append({
+                "final_verdict": q.final_verdict,
+                "claim_date": q.claim_date,
+                "claim": q.claim_text,
+                "facts": [fact for fact in q.result_json["facts"]]
+            })
+            
+        return history

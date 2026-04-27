@@ -80,8 +80,8 @@ class Query(SQLModel, table=True):
     __tablename__ = "Query"
     
     id: Optional[int] = Field(default=None, primary_key=True, sa_column_kwargs={"name": "Id"})
-    query_date: date = Field(sa_column_kwargs={"name": "Uzklausos_data"})
-    query_text: str = Field(max_length=255, sa_column_kwargs={"name": "Uzklausa_text"})
+    claim_date: date = Field(sa_column_kwargs={"name": "Uzklausos_data"})
+    claim_text: str = Field(max_length=255, sa_column_kwargs={"name": "Uzklausa_text"})
     result_json: Optional[dict[str, Any]] = Field(
         default=None,
         sa_column=Column("Atsakymas_json", JSON),
