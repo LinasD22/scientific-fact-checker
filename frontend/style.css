@@ -12,6 +12,15 @@
   --score-low: #ef4444;  /* Red */
 }
 
+body.dark-mode {
+  --bg-color: #0f172a;
+  --card-bg: #1e293b;
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --border-color: #334155;
+  --primary: #60a5fa; /* Slightly lighter blue for dark backgrounds */
+}
+
 /* Update these rules in your style.css */
 body {
   margin: 0;
@@ -22,36 +31,25 @@ body {
   background: var(--bg-color);
   color: var(--text-main);
   overflow: hidden; /* Prevent double scrollbars */
+  transition: background 0.3s ease, color 0.3s ease; /* Smooth transition */
 }
 
 .container {
-  padding: 20px;
+  padding: 16px;
+  padding-right: 12px; /* Balanced right padding */
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: 550px; /* Limits the total height of the popup */
-  overflow-y: auto;   /* Adds a scrollbar to the whole container if needed */
-  overflow-x: hidden;
+  max-height: 550px;
+  overflow-y: auto;
 }
 
-/* Custom Scrollbar Styling for a cleaner look */
-.container::-webkit-scrollbar, 
-.explanation::-webkit-scrollbar, 
-.articles-container::-webkit-scrollbar {
-  width: 6px;
-}
-
-.container::-webkit-scrollbar-thumb, 
-.explanation::-webkit-scrollbar-thumb, 
-.articles-container::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 10px;
-}
 header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
+  gap: 12px;
+  margin-bottom: 4px; /* Shrunk gap below title */
+  padding-right: 35px; /* Room for the X button */
 }
 
 .logo-circle {
@@ -366,4 +364,240 @@ input:focus {
     font-size: 12px;
     margin-bottom: 10px;
     display: none; /* Hidden by default */
+}
+
+.verdict.limit {
+    color: var(--primary); /* Or a neutral gray */
+    font-size: 18px;
+}
+
+textarea, .resultCard, .auth-card {
+  background: var(--card-bg);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+
+/* Custom Scrollbar Styling */
+.container::-webkit-scrollbar{
+  width: 10px; /* Made it thicker as requested */
+}
+
+.container::-webkit-scrollbar-track {
+  background: transparent;
+  margin-top: 45px; /* Starts below the X button */
+  margin-bottom: 10px;
+}
+
+.container::-webkit-scrollbar-thumb{
+  background-color: #cbd5e1;
+  border-radius: 10px;
+  /* This 2px border creates the equal 'gap' on left and right of the thumb */
+  border: 2px solid var(--bg-color); 
+  background-clip: padding-box;
+}
+
+.container::-webkit-scrollbar-thumb:hover {
+  background-color: #475569;
+  border-color: var(--bg-color);
+}
+
+body.dark-mode .container::-webkit-scrollbar-thumb {
+  background-color: #475569;
+}
+
+#closePanelBtn {
+  background: none;
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  position: fixed; 
+  top: 10px;    
+  right: 10px;  
+  box-shadow: none;
+  z-index: 1000;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--bg-color);
+  border-radius: 50%;
+}
+
+#closePanelBtn:hover {
+  color: #ef4444; /* Turns red on hover for a clearer "close" action */
+}
+
+#themeToggle {
+  width: auto;
+  margin: 0;
+  padding: 8px;
+  background: none;
+  box-shadow: none;
+  font-size: 18px;
+  cursor: pointer;
+  /* Push it to the right, but leave room for the X */
+  margin-left: auto; 
+  margin-right: 15px; 
+  transition: transform 0.2s ease;
+}
+
+#themeToggle:hover {
+  transform: scale(1.1);
+}
+
+#authContainer {
+  padding: 4px 10px; /* Reduced vertical padding */
+  border-bottom: none !important; /* Removes the white line */
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center;
+}
+
+/* --- Individual Facts Styling --- */
+.fact-item {
+  background: var(--bg-color); /* Uses the slightly darker inset background */
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: left;
+}
+
+.fact-claim {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 8px;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.fact-verdict {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+/* Tinted backgrounds for the individual badges */
+.fact-verdict.true { 
+  background: rgba(34, 197, 94, 0.15); 
+  color: var(--score-high); 
+}
+.fact-verdict.false { 
+  background: rgba(239, 68, 68, 0.15); 
+  color: var(--score-low); 
+}
+.fact-verdict.uncertain { 
+  background: rgba(234, 179, 8, 0.15); 
+  color: var(--score-mid); 
+}
+
+.fact-explanation {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+.fact-top-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.mini-ring-container {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.mini-score-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.fact-sources-list {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.mini-source {
+  display: block;
+  font-size: 11px;
+  color: var(--primary);
+  text-decoration: none;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.badge-label {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.score-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: white;
+  flex-shrink: 0;
+  min-width: 38px;
+}
+
+/* Badge color logic */
+.score-badge.score-high {
+  background-color: var(--score-high);
+}
+
+.score-badge.score-mid {
+  background-color: var(--score-mid);
+  color: #000; /* Dark text for better readability on yellow */
+}
+
+.score-badge.score-low {
+  background-color: var(--score-low);
+}
+
+/* Adjust top row spacing */
+.fact-top-row {
+  display: flex;
+  gap: 10px;
+  align-items: center; /* Centers badge with the start of the text */
+  margin-bottom: 10px;
+}
+
+.fact-claim {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-main);
 }

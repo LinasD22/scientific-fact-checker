@@ -10,8 +10,14 @@ import logging
 from typing import Any
 from functools import wraps
 from typing import TypeVar
+from pathlib import Path
 
 import requests
+
+# Import from sibling module
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from query_cleaner import clean_query_for_pubmed
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +104,10 @@ class PubMedAPIClient:
         Returns:
             List of PMC IDs
         """
-        params = self._build_esearch_params(query, limit)
+        # Clean query to remove stop words and improve search effectiveness
+        cleaned_query = clean_query_for_pubmed(query)
+        
+        params = self._build_esearch_params(cleaned_query, limit)
         
         response = requests.get(
             self.ESEARCH_URL,
@@ -110,7 +119,9 @@ class PubMedAPIClient:
         data = response.json()
         id_list = data.get("esearchresult", {}).get("idlist", [])
         
-        logger.info(f"PubMed esearch found {len(id_list)} IDs for query: {query}")
+        logger.info(f"PubMed esearch found {len(id_list)} IDs for cleaned query: {cleaned_query}")
+        if cleaned_query != query:
+            logger.debug(f"Original query was: {query}")
         return id_list
     
     def _parse_bioc_document(self, document: dict[str, Any]) -> dict[str, Any]:

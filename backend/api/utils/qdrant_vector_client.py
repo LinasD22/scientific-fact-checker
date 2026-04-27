@@ -13,6 +13,7 @@ Workflow:
 import hashlib
 import logging
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -22,47 +23,47 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    HnswConfigDiff,
     MatchAny,
     MatchValue,
+    OptimizersConfigDiff,
     PayloadSchemaType,
     PointStruct,
+    QuantizationSearchParams,
+    ScalarQuantizationConfig,
+    ScalarType,
+    SearchParams,
     VectorParams,
 )
 
 os.environ.setdefault("OMP_NUM_THREADS", "16")
-os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")   # avoid busy-wait on idle cores
+os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
 os.environ.setdefault("ONNXRUNTIME_INTER_OP_NUM_THREADS", "16")
 os.environ.setdefault("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
 
-from fastembed import TextEmbedding  # noqa: E402  (must come after .env vars)
-from sentence_transformers import CrossEncoder  # noqa: E402
+from fastembed import TextEmbedding
+from sentence_transformers import CrossEncoder
 
 COLLECTION = "fact_checker_cache"
 
-# Ryzen 9950X batch optimum: large enough to saturate ONNX threads,
-# small enough to avoid memory pressure on long academic texts.
 _EMBED_BATCH_SIZE  = 128
-_UPSERT_BATCH_SIZE = 256   # Qdrant local file — larger batch = fewer syscalls
-_THREAD_POOL_SIZE  = 8     # for parallel _is_cached scroll lookups
+_UPSERT_BATCH_SIZE = 256
+_THREAD_POOL_SIZE  = 8
+_FETCH_MULTIPLIER  = 2
+_RERANK_BATCH      = 16
 
-# Reranking: fetch more candidates from Qdrant so the cross-encoder
-# has enough material to reorder before we cut to top_k.
-_FETCH_MULTIPLIER = 4   # fetch top_k * 4 candidates for reranking
+_PAYLOAD_FIELDS = [
+    "chunk_text",
+    "source",
+    "source_db",
+    "source_id",
+    "published_date",
+    "url",
+]
 
-# ------ Reikia cargo ir rustc iš: https://rustup.rs/
+
 class QdrantVectorClient:
-    """Persistent local Qdrant client for searching scientific text snippets.
-
-    Chunks and embeddings are cached on disk by title fingerprint.
-    Subsequent requests for the same paper skip chunking and embedding entirely.
-
-    Embedding backend: fastembed (ONNX Runtime) — ~3-5x faster than
-    sentence-transformers on CPU, no GPU required.
-
-    Reranking backend: cross-encoder/ms-marco-MiniLM-L-6-v2 — lightweight
-    cross-encoder that re-scores (claim, chunk) pairs for higher precision.
-    """
-
+    """Persistent local Qdrant client for searching scientific text snippets."""
     def __init__(self):
         self.model_name = os.getenv(
             "EMBEDDING_MODEL",
@@ -72,11 +73,12 @@ class QdrantVectorClient:
             "RERANKER_MODEL",
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
         )
-        self.min_score     = float(os.getenv("QDRANT_MIN_SCORE",      "0.3"))
-        self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE", "-5.0"))
-        self.chunk_size    = int(os.getenv("QDRANT_CHUNK_SIZE",       "800"))
-        self.chunk_overlap = int(os.getenv("QDRANT_CHUNK_OVERLAP",    "50"))
-        self.cache_path    = os.getenv("QDRANT_CACHE_PATH", "./qdrant_cache")
+        self.min_score        = float(os.getenv("QDRANT_MIN_SCORE",        "0.65"))
+        self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE",      "-5.0"))
+        self.global_min_score = float(os.getenv("QDRANT_GLOBAL_MIN_SCORE", "0.55"))
+        self.chunk_size       = int(os.getenv("QDRANT_CHUNK_SIZE",         "800"))
+        self.chunk_overlap    = int(os.getenv("QDRANT_CHUNK_OVERLAP",      "50"))
+        self.cache_path       = os.getenv("QDRANT_CACHE_PATH", "./qdrant_cache")
 
         logging.info(f"Loading ONNX embedding model: {self.model_name}")
         self.model = TextEmbedding(
@@ -92,7 +94,6 @@ class QdrantVectorClient:
         logging.info(f"Loading cross-encoder reranker: {self.reranker_model_name}")
         self.reranker = CrossEncoder(
             self.reranker_model_name,
-            # MiniLM-L-6 fits comfortably in RAM; no GPU needed
             device="cpu",
         )
         logging.info("Reranker ready.")
@@ -105,13 +106,11 @@ class QdrantVectorClient:
             chunk_overlap=self.chunk_overlap,
         )
 
-        # Reusable thread pool for parallel cache lookups
         self._executor = ThreadPoolExecutor(max_workers=_THREAD_POOL_SIZE)
 
     # ── Vector size probe ──────────────────────────────────────────────────────
 
     def _probe_vector_size(self) -> int:
-        """Embed a single token to discover the model's output dimension."""
         vec = list(self.model.embed(["probe"]))[0]
         return len(vec)
 
@@ -125,28 +124,29 @@ class QdrantVectorClient:
                 vectors_config=VectorParams(
                     size=self.vector_size,
                     distance=Distance.COSINE,
+                    on_disk=False,
+                ),
+                hnsw_config=HnswConfigDiff(
+                    m=32,               # default 16
+                    ef_construct=200,   # default 100
+                    on_disk=False,
+                ),
+                quantization_config=ScalarQuantizationConfig(
+                    type=ScalarType.INT8,
+                    quantile=0.99,
+                    always_ram=True,
+                ),
+                optimizers_config=OptimizersConfigDiff(
+                    indexing_threshold=5000,
+                    memmap_threshold=500000,
                 ),
             )
-            self.client.create_payload_index(
-                collection_name=COLLECTION,
-                field_name="fingerprint",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                collection_name=COLLECTION,
-                field_name="source",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                collection_name=COLLECTION,
-                field_name="source_db",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                collection_name=COLLECTION,
-                field_name="source_id",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
+            for field in ("fingerprint", "source", "source_db", "source_id"):
+                self.client.create_payload_index(
+                    collection_name=COLLECTION,
+                    field_name=field,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
             logging.info(f"Created persistent Qdrant collection '{COLLECTION}'")
         else:
             count = self.client.count(collection_name=COLLECTION).count
@@ -180,12 +180,6 @@ class QdrantVectorClient:
     # ── Embedding (ONNX / fastembed) ───────────────────────────────────────────
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
-        """
-        Embed a list of texts using fastembed (ONNX Runtime).
-
-        fastembed.embed() is a generator — we batch internally to control
-        memory on large chunk lists while keeping ONNX threads saturated.
-        """
         results: list[list[float]] = []
         for i in range(0, len(texts), _EMBED_BATCH_SIZE):
             batch = texts[i : i + _EMBED_BATCH_SIZE]
@@ -202,27 +196,22 @@ class QdrantVectorClient:
         top_k: int,
     ) -> list[dict[str, Any]]:
         """
-        Score each (claim, chunk_text) pair with the cross-encoder,
-        filter by min_rerank_score, sort descending, return top_k.
-
-        Cross-encoder scores are raw logits (unbounded floats) — higher = better.
-        -5.0 default min_rerank_score drops clearly irrelevant chunks while
-        keeping borderline ones that passed the vector search threshold.
+        Batch'inama po _RERANK_BATCH porų — kontroliuoja RAM spike'ą.
         """
         if not candidates:
             return []
 
         pairs = [(claim, c["text"]) for c in candidates]
-        scores: list[float] = self.reranker.predict(pairs).tolist()
+        all_scores: list[float] = []
 
-        # Attach rerank score to each candidate
-        # Update rerank scores (they were initialized with default -5.0)
-        for candidate, score in zip(candidates, scores):
+        for i in range(0, len(pairs), _RERANK_BATCH):
+            batch_scores = self.reranker.predict(pairs[i : i + _RERANK_BATCH]).tolist()
+            all_scores.extend(batch_scores)
+
+        for candidate, score in zip(candidates, all_scores):
             candidate["rerank_score"] = round(score, 4)
-        scored = candidates
 
-        # Filter low-quality results, then sort best-first
-        filtered = [s for s in scored if s["rerank_score"] >= self.min_rerank_score]
+        filtered = [s for s in candidates if s["rerank_score"] >= self.min_rerank_score]
         filtered.sort(key=lambda x: x["rerank_score"], reverse=True)
 
         for item in filtered[:top_k]:
@@ -235,37 +224,41 @@ class QdrantVectorClient:
 
     # ── Chunking & storage ─────────────────────────────────────────────────────
 
-    def _store_work(self, title: str, text: str, fingerprint: str,
-                    source_db: str = "lazy", source_id: str = "",
-                    authors: str | None = None,
-                    published_date: str | None = None,
-                    url: str | None = None) -> int:
+    def _store_work(
+        self,
+        title: str,
+        text: str,
+        fingerprint: str,
+        source_db: str = "lazy",
+        source_id: str = "",
+        authors: str | None = None,
+        published_date: str | None = None,
+        url: str | None = None,
+    ) -> int:
         raw_chunks = self.splitter.split_text(text)
         if not raw_chunks:
             return 0
 
         vectors = self._embed(raw_chunks)
 
-        offset = self.client.count(collection_name=COLLECTION).count
         points = [
             PointStruct(
-                id=offset + i,
+                id=str(uuid.uuid4()),
                 vector=vectors[i],
                 payload={
-                    "chunk_text": raw_chunks[i],
-                    "source": title,
-                    "fingerprint": fingerprint,
-                    "source_db": source_db,
-                    "source_id": source_id,
-                    "authors": authors,
+                    "chunk_text":     raw_chunks[i],
+                    "source":         title,
+                    "fingerprint":    fingerprint,
+                    "source_db":      source_db,
+                    "source_id":      source_id,
+                    "authors":        authors,
                     "published_date": published_date,
-                    "url": url,
-                }
+                    "url":            url,
+                },
             )
             for i in range(len(raw_chunks))
         ]
 
-        # Larger batches → fewer Qdrant file-system round-trips
         for i in range(0, len(points), _UPSERT_BATCH_SIZE):
             self.client.upsert(
                 collection_name=COLLECTION,
@@ -280,20 +273,12 @@ class QdrantVectorClient:
         self,
         claim: str,
         works: list[dict[str, Any]],
-        top_k: int = 20,
+        top_k: int = 5,
         works_metadata: dict[str, dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        For each work: serve from cache or chunk+embed+store.
-        Cache lookups run in parallel via ThreadPoolExecutor.
-        Then:
-          1. Vector search → top_k * _RERANK_FETCH_MULTIPLIER candidates
-          2. Cross-encoder reranking → top_k final results
-        """
         if not works:
             return []
 
-        # ── Parallel cache lookup ──────────────────────────────────────────────
         valid_works = [
             (w.get("title", "Unknown"), w.get("text", ""))
             for w in works
@@ -317,7 +302,9 @@ class QdrantVectorClient:
             else:
                 meta = works_meta.get(title, {})
                 n = self._store_work(
-                    title, text, fp, source_db="lazy",
+                    title, text, fp,
+                    source_db=meta.get("source_db", "lazy"),
+                    source_id=meta.get("source_id", ""),
                     authors=meta.get("authors"),
                     published_date=meta.get("published_date"),
                     url=meta.get("url"),
@@ -334,7 +321,6 @@ class QdrantVectorClient:
             f"Cache stats: {len(cached_titles)} hit(s), {len(new_titles)} miss(es)"
         )
 
-        # ── Stage 1: vector search — fetch more candidates for reranker ────────
         fetch_limit = top_k * _FETCH_MULTIPLIER
         query_vector = self._embed([claim])[0]
         response = self.client.query_points(
@@ -347,26 +333,33 @@ class QdrantVectorClient:
                 )]
             ),
             limit=fetch_limit,
-            with_payload=True,
+            with_payload=_PAYLOAD_FIELDS,
+            score_threshold=self.min_score,
+            search_params=SearchParams(
+                hnsw_ef=96,
+                exact=False,
+                quantization=QuantizationSearchParams(
+                    ignore=False,
+                    rescore=True,
+                    oversampling=2.0,
+                ),
+            ),
         )
 
-        # Build candidates list, applying vector score threshold
         candidates = []
         for hit in response.points:
-            score   = hit.score
             payload = hit.payload or {}
-            if score < self.min_score:
-                logging.warning(
-                    f"Vec score {score:.3f} below threshold {self.min_score} "
-                    f"| {payload.get('source', '')}"
-                )
-                continue
             candidates.append({
-                "text":        payload.get("chunk_text", ""),
-                "source":      payload.get("source", "Unknown"),
-                "title":       payload.get("source", "Unknown"),
-                "score":       round(score, 4),
-                "rerank_score": -5.0,  # Default rerank score (will be updated later)
+                "text":           payload.get("chunk_text", ""),
+                "source":         payload.get("source", "Unknown"),
+                "title":          payload.get("source", "Unknown"),
+                "score":          round(hit.score, 4),
+                "rerank_score":   -5.0,
+                "source_db":      payload.get("source_db", ""),
+                "source_id":      payload.get("source_id", ""),
+                "authors":        payload.get("authors"),
+                "published_date": payload.get("published_date"),
+                "url":            payload.get("url"),
             })
 
         if not candidates:
@@ -378,19 +371,16 @@ class QdrantVectorClient:
             f"(requested {fetch_limit})"
         )
 
-        # ── Stage 2: cross-encoder reranking ───────────────────────────────────
         return self._rerank(claim, candidates, top_k)
 
     def search_global(
-            self,
-            claim: str,
-            top_k: int = 3,
-            min_score: float = 0.45,
+        self,
+        claim: str,
+        top_k: int = 3,
+        min_score: float | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        Ieško per VISĄ kolekciją be title filtro.
-        Naudojama kai turima daug embedded dokumentų.
-        """
+        """Ieško per VISĄ kolekciją be title filtro."""
+        threshold = min_score if min_score is not None else self.global_min_score
         query_vector = self._embed([claim])[0]
         fetch_limit = top_k * _FETCH_MULTIPLIER
 
@@ -398,23 +388,33 @@ class QdrantVectorClient:
             collection_name=COLLECTION,
             query=query_vector,
             limit=fetch_limit,
-            with_payload=True,
-            score_threshold=min_score,
+            with_payload=_PAYLOAD_FIELDS,
+            score_threshold=threshold,
+            search_params=SearchParams(
+                hnsw_ef=64,
+                exact=False,
+                quantization=QuantizationSearchParams(
+                    ignore=False,
+                    rescore=True,
+                    oversampling=2.0,
+                ),
+            ),
         )
 
         candidates = []
         for hit in response.points:
             payload = hit.payload or {}
             candidates.append({
-                "text": payload.get("chunk_text", ""),
-                "source": payload.get("source", "Unknown"),
-                "title": payload.get("source", "Unknown"),
-                "score": round(hit.score, 4),
-                "source_db": payload.get("source_db", "unknown"),
-                "source_id": payload.get("source_id", ""),
-                "authors": payload.get("authors"),
+                "text":           payload.get("chunk_text", ""),
+                "source":         payload.get("source", "Unknown"),
+                "title":          payload.get("source", "Unknown"),
+                "score":          round(hit.score, 4),
+                "rerank_score":   -5.0,
+                "source_db":      payload.get("source_db", "unknown"),
+                "source_id":      payload.get("source_id", ""),
+                "authors":        payload.get("authors"),
                 "published_date": payload.get("published_date"),
-                "url": payload.get("url"),
+                "url":            payload.get("url"),
             })
 
         if not candidates:

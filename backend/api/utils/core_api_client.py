@@ -49,7 +49,7 @@ class CoreAPIClient:
         Initialize the Core API client.
         
         Args:
-            api_key: API key for authentication. Defaults to env var CORE_API_KEY.
+            api_key: API key for authentication. Defaults to .env var CORE_API_KEY.
         """
         self.api_key = api_key or os.getenv("CORE_API_KEY", "")
         self.headers = {
