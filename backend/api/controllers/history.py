@@ -33,20 +33,16 @@ def get_user_history(user_id: int, session: Session = Depends(get_session)):
 
 @router.get("/user/{user_id}/query/{query_id}")
 def get_user_history(user_id: int, query_id: int, session: Session = Depends(get_session)):
-    statement = select(Query).where(Query.user_id == user_id).order_by(Query.query_date.desc()).limit(3)
+    statement = select(Query).where(Query.user_id == user_id and Query.id == query_id)
     
-    results = session.exec(statement).all()
+    result = session.exec(statement).first()
     if not results:
         raise HTTPException(status_code=404, detail="No queries found for this user")
     else:
 
-        history = []
-        for q in results;
-            history.append({
-                "final_verdict": q.final_verdict,
-                "claim_date": q.claim_date,
-                "claim": q.claim_text,
-                "facts": [fact for fact in q.result_json["facts"]]
-            })
-            
-        return history
+        return {
+            "final_verdict": result.final_verdict,
+            "claim_date": result.claim_date,
+            "claim": result.claim_text,
+            "facts": [fact for fact in result.result_json["facts"]]
+        }
