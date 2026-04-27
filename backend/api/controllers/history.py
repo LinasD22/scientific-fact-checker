@@ -4,6 +4,9 @@ from sqlmodel import Session, select
 from api.db.database import engine
 from api.db.models import Query
 
+# Security: path user_id is not bound to the caller. When JWT is added, require
+# current_user.id == user_id (or drop user_id from the path and use the token only).
+
 router = APIRouter(
     prefix="/history",
     tags=["history"],
@@ -24,14 +27,15 @@ def get_user_history(user_id: int, session: Session = Depends(get_session)):
     statement = select(Query).where(Query.user_id == user_id).order_by(Query.claim_date.desc()).limit(3)
     results = session.exec(statement).all()
     if not results:
-        raise HTTPException(status_code=404, detail="No queries found for this user")
+        return {"queries": []}
     return {
         "queries": [
             {
                 "query_id": q.id,
                 "claim": q.claim_text,
-                "final_verdict": MOCK_FINAL_VERDICT,  # TODO(team): was q.final_verdict
-                "claim_date": str(q.claim_date) if q.claim_date is not None else None,
+                # TODO(team): replace with q.final_verdict (or aggregate) per product spec
+                "final_verdict": MOCK_FINAL_VERDICT,
+                "claim_date": q.claim_date.isoformat() if q.claim_date is not None else None,
             }
             for q in results
         ],
@@ -48,10 +52,12 @@ def get_user_query_detail(user_id: int, query_id: int, session: Session = Depend
     if not data:
         facts: list = []
     else:
-        facts = data.get("facts") or data.get("all_results") or []
+        raw = data.get("facts") if data.get("facts") is not None else data.get("all_results")
+        facts = raw if isinstance(raw, list) else []
     return {
-        "final_verdict": MOCK_FINAL_VERDICT,  # TODO(team): was result.final_verdict or aggregate
-        "claim_date": str(result.claim_date) if result.claim_date is not None else None,
+        # TODO(team): replace with result.final_verdict (or aggregate) per product spec
+        "final_verdict": MOCK_FINAL_VERDICT,
+        "claim_date": result.claim_date.isoformat() if result.claim_date is not None else None,
         "claim": result.claim_text,
         "facts": facts,
     }
