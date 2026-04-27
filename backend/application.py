@@ -56,7 +56,6 @@ from sqlmodel import SQLModel
 from api.db import models 
 
 def create_db_and_tables():
-    # Generates the SQL logs
     SQLModel.metadata.create_all(engine)
 
 @app.on_event("startup")

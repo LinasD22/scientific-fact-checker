@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from api.db.database import engine
 from api.db.models import Query
 
+# TODO authorization should be here!
 # Security: path user_id is not bound to the caller. When JWT is added, require
 # current_user.id == user_id (or drop user_id from the path and use the token only).
 
