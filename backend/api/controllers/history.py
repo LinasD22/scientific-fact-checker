@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from api.db.database import engine
 from api.db.models import Query
@@ -21,5 +21,5 @@ def get_user_history(user_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="No queries found for this user")
     else:
         return {
-            "queries": [results.query_text for results in results]
-            }   
+            "queries": [q.query_text for q in results],
+        }

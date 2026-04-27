@@ -1,8 +1,12 @@
+from sqlalchemy import Column, JSON
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import SQLModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from datetime import date
 from decimal import Decimal
+
+from api.enums import FactCheckResult
 
 class Status(SQLModel, table=True):
     __tablename__ = "Status"
@@ -78,8 +82,27 @@ class Query(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True, sa_column_kwargs={"name": "Id"})
     query_date: date = Field(sa_column_kwargs={"name": "Uzklausos_data"})
     query_text: str = Field(max_length=255, sa_column_kwargs={"name": "Uzklausa_text"})
-    answer: Optional[str] = Field(default=None, max_length=255, sa_column_kwargs={"name": "Atsakymas"})
+    result_json: Optional[dict[str, Any]] = Field(
+        default=None,
+        sa_column=Column("Atsakymas_json", JSON),
+    )
+    final_verdict: Optional[FactCheckResult] = Field(
+        default=None,
+        sa_column=Column(
+            "Final_verdict",
+            SAEnum(
+                FactCheckResult,
+                values_callable=lambda c: [m.value for m in c],
+                native_enum=False,
+                length=32,
+            ),
+            nullable=True,
+        ),
+    )
     
+    # TODO discuss maybe we should add an agregate score for all the facts into one
+    # final_score: Optional[float] = Field(default=None, sa_column_kwargs={"name": "Final_score"})
+
     user_id: int = Field(foreign_key="User.Id", sa_column_kwargs={"name": "fk_Naudotojas"})
 
 class TokenBlacklist(SQLModel, table=True):

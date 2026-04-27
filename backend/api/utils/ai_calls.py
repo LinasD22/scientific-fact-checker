@@ -11,19 +11,12 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 
 import requests
 from requests.auth import HTTPBasicAuth
 
-
-class FactCheckResult(Enum):
-    VERIFIED = "verified"
-    PARTIALLY_VERIFIED = "partially_verified"
-    FALSE = "false"
-    UNVERIFIABLE = "unverifiable"
-    CONFLICTING = "conflicting"
+from api.enums import FactCheckResult
 
 
 @dataclass
