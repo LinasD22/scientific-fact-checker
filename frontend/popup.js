@@ -7,7 +7,115 @@ const authBtnAction = document.getElementById('authBtnAction');
 const userInfo = document.getElementById('userInfo');
 const themeToggle = document.getElementById("themeToggle");
 
-// Check for saved theme on load
+// ── OCR elements ──────────────────────────────────────────────────────────────
+const ocrDropZone   = document.getElementById("ocrDropZone");
+const ocrFileInput  = document.getElementById("ocrFileInput");
+const ocrBrowseBtn  = document.getElementById("ocrBrowseBtn");
+const ocrDropLabel  = document.getElementById("ocrDropLabel");
+const ocrFileName   = document.getElementById("ocrFileName");
+const ocrSpinner    = document.getElementById("ocrSpinner");
+const ocrError      = document.getElementById("ocrError");
+
+//const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
+ const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
+
+// ── OCR helpers ───────────────────────────────────────────────────────────────
+function ocrShowState(state, message = "") {
+  ocrDropLabel.style.display = "none";
+  ocrFileName.style.display  = "none";
+  ocrSpinner.style.display   = "none";
+  ocrError.style.display     = "none";
+
+  if (state === "idle") {
+    ocrDropLabel.style.display = "inline";
+  } else if (state === "file") {
+    ocrFileName.textContent    = "📄 " + message;
+    ocrFileName.style.display  = "inline";
+  } else if (state === "loading") {
+    ocrSpinner.style.display   = "inline";
+  } else if (state === "error") {
+    ocrError.textContent       = "⚠️ " + message;
+    ocrError.style.display     = "inline";
+  }
+}
+
+async function runOCR(file) {
+  // Validate type
+  if (!["image/png", "image/jpeg"].includes(file.type)) {
+    ocrShowState("error", "Only PNG or JPEG images are supported.");
+    return;
+  }
+
+  ocrShowState("file", file.name);
+  ocrDropZone.classList.add("ocr-loading");
+  ocrSpinner.style.display = "inline";
+  ocrFileName.style.display = "none";
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(OCR_API_URL, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `Server error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = (data.text || "").trim();
+
+    if (!text) {
+      ocrShowState("error", "No text found in image.");
+    } else {
+      claimInput.value = text;
+      ocrShowState("file", file.name);
+      sendHeight();
+    }
+  } catch (err) {
+    ocrShowState("error", err.message || "OCR failed. Please try again.");
+  } finally {
+    ocrDropZone.classList.remove("ocr-loading");
+  }
+}
+
+// Click-to-browse
+ocrBrowseBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  ocrFileInput.click();
+});
+
+ocrDropZone.addEventListener("click", () => ocrFileInput.click());
+
+ocrFileInput.addEventListener("change", () => {
+  const file = ocrFileInput.files[0];
+  if (file) runOCR(file);
+  ocrFileInput.value = ""; // allow re-selecting the same file
+});
+
+// Drag-and-drop events
+ocrDropZone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  ocrDropZone.classList.add("ocr-drag-over");
+});
+
+ocrDropZone.addEventListener("dragleave", (e) => {
+  if (!ocrDropZone.contains(e.relatedTarget)) {
+    ocrDropZone.classList.remove("ocr-drag-over");
+  }
+});
+
+ocrDropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  ocrDropZone.classList.remove("ocr-drag-over");
+  const file = e.dataTransfer.files[0];
+  if (file) runOCR(file);
+});
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
 chrome.storage.local.get("theme", (data) => {
   if (data.theme === "dark") {
     document.body.classList.add("dark-mode");
@@ -21,11 +129,7 @@ chrome.storage.local.get("theme", (data) => {
 chrome.storage.local.get("lastClaim", (data) => {
   if (data.lastClaim) {
     claimInput.value = data.lastClaim;
-    
-    // Clear the storage immediately so it doesn't persist to the next tab
     chrome.storage.local.remove("lastClaim");
-    
-    // UI Refresh to ensure the panel height matches the new text
     setTimeout(sendHeight, 50);
   }
 });
@@ -43,16 +147,16 @@ function updateUI() {
 			checkBtn.style.opacity = "1";
 			checkBtn.style.cursor = "pointer";
 		} else {
-			const count = (result.guestUsage && result.guestUsage.date === today) 
-					? result.guestUsage.count 
+			const count = (result.guestUsage && result.guestUsage.date === today)
+					? result.guestUsage.count
 					: 0;
 			const remaining = Math.max(0, LIMIT - count);
-	
+
 			userInfo.innerText = `Guest: ${remaining} uses left today`;
 			authBtnAction.innerText = "Login/Register";
 			if (remaining <= 0) {
 				checkBtn.disabled = true;
-				btnText.textContent = "Daily Limit Reached"; // Updates text immediately
+				btnText.textContent = "Daily Limit Reached";
 				checkBtn.style.opacity = "0.6";
 				checkBtn.style.cursor = "not-allowed";
 			} else {
@@ -68,11 +172,7 @@ function updateUI() {
 // Toggle logic
 themeToggle.addEventListener("click", () => {
   const isDark = document.body.classList.toggle("dark-mode");
-  
-  // Update button icon
   themeToggle.textContent = isDark ? "☀️" : "🌙";
-  
-  // Save preference
   chrome.storage.local.set({ theme: isDark ? "dark" : "light" });
 });
 
@@ -80,13 +180,12 @@ themeToggle.addEventListener("click", () => {
 clearBtn.addEventListener("click", () => {
   claimInput.value = "";
   resultCard.classList.add("hidden");
+  ocrShowState("idle");
   sendHeight();
 });
 
 // Manual Check Logic
 checkBtn.addEventListener("click", autoCheck);
-
-// ... existing code (theme logic, clearBtn, etc.) ...
 
 function autoCheck() {
   const claim = claimInput.value.trim();
@@ -102,16 +201,16 @@ function autoCheck() {
     (response) => {
       checkBtn.disabled = false;
       btnText.textContent = "Check Fact";
-	  
+
 	  updateUI();
 
       if (response.verdict === "Limit Reached") {
-        updateUI(); 
+        updateUI();
         resultCard.classList.remove("hidden");
         document.getElementById("finalVerdict").textContent = "Limit Reached";
         document.getElementById("finalVerdict").className = "verdict uncertain";
         document.getElementById("finalExplanation").textContent = response.explanation;
-        return; 
+        return;
       }
 
       // --- NEW CONDITIONAL LAYOUT LOGIC ---
@@ -135,11 +234,11 @@ function autoCheck() {
         facts.forEach(fact => {
 			const factDiv = document.createElement("div");
 			factDiv.className = "fact-item";
-    
+
 			const vClass = getVerdictClass(fact.verdict);
 			const scorePercent = Math.round(fact.score * 100);
 			const sourcesHtml = generateSourcesHtml(fact.sources);
-			
+
 			// Get color based on score for the badge
 			let scoreColorClass = "score-mid";
 			if (scorePercent >= 70) scoreColorClass = "score-high";
@@ -174,11 +273,11 @@ function autoCheck() {
         // Update the big ring and text
         const verdictEl = document.getElementById("finalVerdict");
         const vClass = getVerdictClass(response.verdict);
-        
+
         verdictEl.textContent = response.verdict;
         verdictEl.className = `verdict ${vClass}`;
         finalExplanation.textContent = response.explanation;
-        
+
         updateScoreRing(response.score * 100 || 0);
       }
 
@@ -192,7 +291,7 @@ function autoCheck() {
   );
 }
 
-// --- NEW HELPER FUNCTIONS (Add these at the very bottom of popup.js) ---
+// --- HELPER FUNCTIONS ---
 
 function getVerdictClass(verdict) {
     const vText = (verdict || "").toLowerCase();
@@ -231,28 +330,20 @@ function updateArticlesList(articles) {
     }
 }
 
-// Keep your existing updateScoreRing and sendHeight functions below...
-
 function sendHeight() {
   const height = document.body.scrollHeight;
   window.parent.postMessage({ type: "RESIZE_PANEL", height: height }, "*");
 }
 
-// Call on load
 window.addEventListener("load", sendHeight);
 
 function updateScoreRing(score) {
   const circle = document.getElementById("ringProgress");
-  
-  // Radius is 52. Circumference = 2 * PI * r
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
-
-  // Calculate the offset
   const offset = circumference - (score / 100) * circumference;
   circle.style.strokeDashoffset = offset;
 
-  // Dynamic colors matching CSS variables
   if (score >= 70) {
     circle.style.stroke = "var(--score-high)";
   } else if (score >= 40) {
@@ -260,30 +351,27 @@ function updateScoreRing(score) {
   } else {
     circle.style.stroke = "var(--score-low)";
   }
-  
+
   animateScoreText(score);
 }
 
 function animateScoreText(targetScore) {
   const scoreText = document.getElementById("scoreValue");
-  
+
   if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
     scoreText.textContent = "!";
     return;
   }
 
   let current = 0;
-  // Clear any existing intervals to prevent glitches on rapid clicks
   if (window.scoreInterval) clearInterval(window.scoreInterval);
 
   window.scoreInterval = setInterval(() => {
-    current += Math.ceil(targetScore / 20); // Dynamic step size
-    
+    current += Math.ceil(targetScore / 20);
     if (current >= targetScore) {
       current = targetScore;
       clearInterval(window.scoreInterval);
     }
-    
     scoreText.textContent = current;
   }, 30);
 }
@@ -293,17 +381,13 @@ document.getElementById("closePanelBtn").addEventListener("click", () => {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-
     authBtnAction.addEventListener('click', () => {
         chrome.storage.local.get(['token'], (result) => {
             if (result.token) {
-                // LOGOUT LOGIC
                 chrome.storage.local.remove(['token', 'userEmail'], () => {
                     updateUI();
-                    // todo: Call backend /logout endpoint here if blacklisting
                 });
             } else {
-                // LOGIN LOGIC
                 chrome.runtime.sendMessage({ type: "OPEN_AUTH" });
             }
         });

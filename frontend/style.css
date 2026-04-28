@@ -600,4 +600,72 @@ body.dark-mode .container::-webkit-scrollbar-thumb {
   font-size: 13px;
   line-height: 1.4;
   color: var(--text-main);
+}/* ── OCR Drop Zone ──────────────────────────────────────────────────────── */
+.ocr-drop-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1.5px dashed var(--border-color);
+  border-radius: 10px;
+  padding: 9px 12px;
+  margin-top: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  min-height: 38px;
+  background: transparent;
+  text-align: center;
+  user-select: none;
+}
+
+.ocr-drop-zone:hover {
+  border-color: var(--primary);
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.ocr-drop-zone.ocr-drag-over {
+  border-color: var(--primary);
+  background: rgba(59, 130, 246, 0.08);
+  border-style: solid;
+}
+
+.ocr-drop-zone.ocr-loading {
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.ocr-drop-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ocr-browse-link {
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ocr-file-name {
+  font-size: 11px;
+  color: var(--primary);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocr-spinner {
+  font-size: 11px;
+  color: var(--text-muted);
+  animation: ocr-pulse 1.2s ease-in-out infinite;
+}
+
+.ocr-error {
+  font-size: 11px;
+  color: var(--score-low);
+}
+
+@keyframes ocr-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
 }

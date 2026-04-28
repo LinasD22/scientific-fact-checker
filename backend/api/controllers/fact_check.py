@@ -1,10 +1,14 @@
 """
 API endpoints for the fact checker plugin.
 """
-
+import base64
+import os
 from typing import Annotated
+
+from mistralai import Mistral
+
 from api.utils.ai_calls import extract_individual_facts
-from fastapi import Body, APIRouter, HTTPException, status
+from fastapi import Body, APIRouter, HTTPException, status, UploadFile, File
 from fastapi.responses import JSONResponse
 
 from api.services.fact_checker import FactCheckerService, create_fact_checker
@@ -14,12 +18,82 @@ router = APIRouter()
 _fact_checker: FactCheckerService | None = None
 
 LIMIT=3
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg"}
 
 def get_fact_checker() -> FactCheckerService:
     global _fact_checker
     if _fact_checker is None:
         _fact_checker = create_fact_checker()
     return _fact_checker
+
+
+@router.post("/fact-check/ocr")
+async def ocr_image(file: UploadFile = File(..., description="PNG or JPEG image to extract text from"),) -> JSONResponse:
+    """
+    Extract text from an uploaded PNG or JPEG image using Mistral OCR (mistral-ocr-latest).
+    Returns the extracted text as a plain string ready to be used as a fact-check claim.
+    """
+    # ── Validate content type ──────────────────────────────────────────────────
+    content_type = file.content_type or ""
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported file type '{content_type}'. Only PNG and JPEG images are accepted.",
+        )
+
+    # ── Read & encode image ────────────────────────────────────────────────────
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{content_type};base64,{image_b64}"
+
+    # ── Call Mistral OCR ───────────────────────────────────────────────────────
+    mistral_api_key = os.environ.get("MISTRAL_API_KEY")
+    if not mistral_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="MISTRAL_API_KEY is not configured on the server.",
+        )
+
+    try:
+        client = Mistral(api_key=mistral_api_key)
+        ocr_response = client.ocr.process(
+            model="mistral-ocr-latest",
+            document={
+                "type": "image_url",
+                "image_url": data_url,
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Mistral OCR request failed: {str(e)}",
+        )
+
+    # ── Collect text from all pages ────────────────────────────────────────────
+    pages_text: list[str] = []
+    for page in ocr_response.pages or []:
+        page_text = (page.markdown or "").strip()
+        if page_text:
+            pages_text.append(page_text)
+
+    extracted_text = "\n\n".join(pages_text).strip()
+
+    if not extracted_text:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"text": "", "message": "No text could be extracted from the image."},
+        )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"text": extracted_text},
+    )
 
 
 @router.post("/fact-check/search")
