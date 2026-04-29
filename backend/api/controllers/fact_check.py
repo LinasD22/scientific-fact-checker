@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
@@ -15,6 +15,7 @@ from api.db.models import Query
 from api.enums import FactCheckResult
 from api.utils.ai_calls import extract_individual_facts
 from api.services.fact_checker import FactCheckerService, create_fact_checker
+from api.utils.auth_deps import get_optional_user_id
 
 
 def _verdict_to_enum(v: str | None) -> FactCheckResult | None:
@@ -55,7 +56,8 @@ router = APIRouter()
 
 _fact_checker: FactCheckerService | None = None
 
-LIMIT=3
+LIMIT = 3
+
 
 def get_fact_checker() -> FactCheckerService:
     global _fact_checker
@@ -66,14 +68,13 @@ def get_fact_checker() -> FactCheckerService:
 
 class FactCheckSearchBody(BaseModel):
     claim: str = Field(..., description="The fact/claim to verify")
-    user_id: int | None = Field(
-        default=None,
-        description="If set, persists this run to the user's history (Query row)",
-    )
 
 
 @router.post("/fact-check/search")
-async def fact_check_with_search(body: FactCheckSearchBody) -> JSONResponse:
+async def fact_check_with_search(
+    body: FactCheckSearchBody,
+    user_id: int | None = Depends(get_optional_user_id),
+) -> JSONResponse:
     """
     Full pipeline with preprocessing:
     1. Preprocess: Break text into individual factual claims using Mistral
@@ -88,7 +89,6 @@ async def fact_check_with_search(body: FactCheckSearchBody) -> JSONResponse:
     """
     try:
         claim = body.claim
-        user_id = body.user_id
         service = get_fact_checker()
         
         # ── Step 1: Extract individual facts from the provided text ──
