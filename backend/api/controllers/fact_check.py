@@ -2,18 +2,62 @@
 API endpoints for the fact checker plugin.
 """
 
-from typing import Annotated
-from api.utils.ai_calls import extract_individual_facts
-from fastapi import Body, APIRouter, HTTPException, status
-from fastapi.responses import JSONResponse
+from datetime import date, datetime, timezone
+from typing import Annotated, Any
 
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
+from sqlmodel import Session
+
+from api.db.database import engine
+from api.db.models import Query
+from api.enums import FactCheckResult
+from api.utils.ai_calls import extract_individual_facts
 from api.services.fact_checker import FactCheckerService, create_fact_checker
+from api.utils.auth_deps import get_optional_user_id
+
+
+def _verdict_to_enum(v: str | None) -> FactCheckResult | None:
+    if v is None:
+        return None
+    try:
+        return FactCheckResult(v)
+    except ValueError:
+        return None
+
+
+def _first_successful_verdict(all_results: list[dict[str, Any]]) -> FactCheckResult | None:
+    for r in all_results:
+        if "error" in r:
+            continue
+        if r.get("final_verdict") is not None:
+            return _verdict_to_enum(r["final_verdict"])
+    return None
+
+
+def _persist_query(user_id: int, claim: str, response_content: dict[str, Any]) -> None:
+    """Store full response in Query.result_json; first non-error fact verdict in Query.final_verdict."""
+    all_results = response_content.get("all_results") or []
+    stored_json = {**response_content, "facts": all_results, "saved_at": datetime.now(timezone.utc).isoformat()}
+    verdict = _first_successful_verdict(all_results)
+    with Session(engine) as session:
+        row = Query(
+            claim_text=claim[:255],
+            claim_date=date.today(),
+            result_json=stored_json,
+            final_verdict=verdict,
+            user_id=user_id,
+        )
+        session.add(row)
+        session.commit()
 
 router = APIRouter()
 
 _fact_checker: FactCheckerService | None = None
 
-LIMIT=3
+LIMIT = 3
+
 
 def get_fact_checker() -> FactCheckerService:
     global _fact_checker
@@ -22,9 +66,14 @@ def get_fact_checker() -> FactCheckerService:
     return _fact_checker
 
 
+class FactCheckSearchBody(BaseModel):
+    claim: str = Field(..., description="The fact/claim to verify")
+
+
 @router.post("/fact-check/search")
 async def fact_check_with_search(
-    claim: Annotated[str, Body(embed=True, description="The fact/claim to verify")],
+    body: FactCheckSearchBody,
+    user_id: int | None = Depends(get_optional_user_id),
 ) -> JSONResponse:
     """
     Full pipeline with preprocessing:
@@ -36,8 +85,10 @@ async def fact_check_with_search(
     3. Return results:
        - Backward compatible: first fact in top-level fields
        - New: all_results array with complete results for each fact
+    Request JSON: `{"claim": "...", "user_id": null|123}` — pass `user_id` to store this run in `Query` for `/history` APIs.
     """
     try:
+        claim = body.claim
         service = get_fact_checker()
         
         # ── Step 1: Extract individual facts from the provided text ──
@@ -117,6 +168,9 @@ async def fact_check_with_search(
             # === NEW: ALL RESULTS ===
             "all_results": all_results,
         }
+
+        if user_id is not None:
+            _persist_query(user_id, claim, response_content)
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
