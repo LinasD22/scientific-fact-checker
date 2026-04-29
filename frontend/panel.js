@@ -104,8 +104,8 @@ function highlightString(claimText, verdict) {
 
   const mainRange = selection.getRangeAt(0);
   const container = mainRange.commonAncestorContainer;
-  const normalizedClaim = claimText.replace(/\s+/g, ' ').trim();
-  
+
+  // 1. Gather all text nodes within the selection
   const walker = document.createTreeWalker(
     container.nodeType === Node.TEXT_NODE ? container.parentNode : container,
     NodeFilter.SHOW_TEXT,
@@ -122,35 +122,67 @@ function highlightString(claimText, verdict) {
     fullText += node.textContent;
   }
 
-	const matchIndex = fullText.replace(/\s+/g, ' ').toLowerCase().indexOf(normalizedClaim.toLowerCase());
+  // --- NEW ADDITION: FUZZY MATCHING LOGIC ---
+  
+  // Normalize both strings: remove all non-alphanumeric characters and collapse spaces
+  const fuzzyClean = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+  
+  const cleanFullText = fuzzyClean(fullText);
+  const cleanClaim = fuzzyClean(claimText);
 
-	console.log("Full selection text:", fullText.replace(/\s+/g, ' '));
-	console.log("Looking for claim:", normalizedClaim);
-	console.log("Match Index found:", matchIndex);
+  const cleanMatchIndex = cleanFullText.indexOf(cleanClaim);
 
-  if (matchIndex !== -1) {
-    const matchRange = document.createRange();
-    let startSet = false;
+  console.log("Fuzzy Search Result:", cleanMatchIndex !== -1 ? "FOUND" : "NOT FOUND");
 
-    for (const item of nodes) {
-      const nodeLength = item.text.length;
-      if (!startSet && matchIndex < item.start + nodeLength) {
-        matchRange.setStart(item.node, Math.max(0, matchIndex - item.start));
-        startSet = true;
-      }
-      if (startSet && (matchIndex + normalizedClaim.length) <= item.start + nodeLength) {
-        matchRange.setEnd(item.node, (matchIndex + normalizedClaim.length) - item.start);
-        
-        // Apply to the correct Highlight group based on verdict
-        const v = verdict.toLowerCase();
-        if (v.includes("verified") || v.includes("true")) {
-          window.factHighlights.verified.add(matchRange);
-        } else if (v.includes("false") || v.includes("refuted")) {
-          window.factHighlights.false.add(matchRange);
-        } else {
-          window.factHighlights.neutral.add(matchRange);
+  if (cleanMatchIndex !== -1) {
+    // 2. Map the "clean" index back to the "real" index in the original text
+    let realStartIndex = -1;
+    let realEndIndex = -1;
+    let cleanCounter = 0;
+
+    // Iterate through original text to find where the clean version starts and ends
+    for (let i = 0; i < fullText.length; i++) {
+      const char = fullText[i].toLowerCase();
+      if (/[a-z0-9]/.test(char)) {
+        if (cleanCounter === cleanMatchIndex) realStartIndex = i;
+        cleanCounter++;
+        if (cleanCounter === cleanMatchIndex + cleanClaim.length) {
+          realEndIndex = i + 1;
+          break;
         }
-        break;
+      }
+    }
+
+    if (realStartIndex !== -1 && realEndIndex !== -1) {
+      const matchRange = document.createRange();
+      let startSet = false;
+
+      // 3. Map the real character indices back to the actual DOM Nodes
+      for (const item of nodes) {
+        const nodeLength = item.text.length;
+        const nodeEnd = item.start + nodeLength;
+
+        // Check if the start of our match falls within this text node
+        if (!startSet && realStartIndex < nodeEnd) {
+          matchRange.setStart(item.node, realStartIndex - item.start);
+          startSet = true;
+        }
+        
+        // Check if the end of our match falls within this text node
+        if (startSet && realEndIndex <= nodeEnd) {
+          matchRange.setEnd(item.node, realEndIndex - item.start);
+
+          // 4. Apply to the correct Highlight group based on verdict
+          const v = verdict.toLowerCase();
+          if (v.includes("verified") || v.includes("true")) {
+            window.factHighlights.verified.add(matchRange);
+          } else if (v.includes("false") || v.includes("refuted")) {
+            window.factHighlights.false.add(matchRange);
+          } else {
+            window.factHighlights.neutral.add(matchRange);
+          }
+          break;
+        }
       }
     }
   }
