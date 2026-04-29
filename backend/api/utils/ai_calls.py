@@ -457,32 +457,32 @@ def extract_individual_facts(text: str) -> dict[str, Any]:
     
     system_prompt = """You are a fact-checking assistant that breaks down text into individual verifiable claims.
     
-Your task is to identify and extract all distinct factual claims from the given text.
-Each claim should be:
-- A single, specific fact that can be independently verified
-- Clear and unambiguous
-- Separated from opinions, speculation, or subjective statements
+    Your task is to identify and extract all distinct factual claims from the given text.
+    Each claim should be:
+    - A single, specific fact that can be independently verified
+    - Clear and unambiguous
+    - Separated from opinions, speculation, or subjective statements
 
-Respond ONLY with valid JSON."""
+    Respond ONLY with valid JSON."""
     
     prompt = f"""Break down the following text into individual factual claims that should be fact-checked:
 
-"{text}"
+    "{text}"
 
-Return a JSON object with this structure:
-{{
-    "facts": [
-        "First independent factual claim",
-        "Second independent factual claim",
-        "Third independent factual claim"
-    ]
-}}
+    Return a JSON object with this structure:
+    {{
+        "facts": [
+            "First independent factual claim",
+            "Second independent factual claim",
+            "Third independent factual claim"
+        ]
+    }}
 
-Important:
-- Extract only verifiable facts, not opinions or subjective statements
-- Each fact should be a complete, standalone statement
-- If the text contains no verifiable facts, return an empty facts array
-- Maximum 5 facts per text"""
+    Important:
+    - Extract only verifiable facts, not opinions or subjective statements
+    - Each fact should be a complete, standalone statement
+    - If the text contains no verifiable facts, return an empty facts array
+    - Maximum 5 facts per text"""
     
     result = ai_client._call_ai_extract_facts(system_prompt, prompt)
     
@@ -497,4 +497,92 @@ Important:
     # Fallback: return the original text as a single fact if parsing fails
     logging.warning(f"Failed to parse facts from AI response: {result}")
     return {"facts": [text] if text.strip() else []}
+
+
+def translate_to_english(text: str) -> dict[str, Any]:
+    """
+    Translate text to English if it's not already in English using Mistral.
+    
+    Args:
+        text: The text to potentially translate
+        
+    Returns:
+        Dictionary with:
+        - "original": original text
+        - "translated": English translation (same as original if already English)
+        - "was_translated": bool indicating if translation occurred
+        - "detected_language": detected language code or "english" if already English
+    """
+    from mistralai import Mistral
+    
+    client = Mistral(api_key=os.getenv("MISTRAL_API_KEY", ""))
+    model = os.getenv("MISTRAL_MODEL", "mistral-small-2506")
+    
+    system_prompt = """You are a language detection and translation assistant.
+    Your task is to:
+    1. Detect the language of the provided text
+    2. If the text is NOT in English, translate it to English
+    3. If the text IS already in English, return it unchanged
+    
+    You must respond with ONLY a valid JSON object, no other text."""
+    
+    user_prompt = f"""Analyze and translate the following text:
+
+    Text: "{text}"
+
+    Respond with ONLY this JSON structure:
+    {{
+        "original_language": "language name or 'english' if already English",
+        "is_english": true/false,
+        "translated_text": "English translation (or original text if already English)"
+    }}"""
+    
+    try:
+        response = client.chat.complete(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            max_tokens=2000,
+        )
+        
+        content = response.choices[0].message.content
+        if isinstance(content, list):
+            content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
+        
+        content = content.strip()
+        
+        # Strip markdown code blocks if present
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+        
+        result = json.loads(content)
+        
+        translated_text = result.get("translated_text", text)
+        is_english = result.get("is_english", True)
+        original_language = result.get("original_language", "unknown")
+        
+        logging.info(f"Language detection: {original_language}, is_english={is_english}")
+        
+        return {
+            "original": text,
+            "translated": translated_text,
+            "was_translated": not is_english,
+            "detected_language": original_language,
+        }
+        
+    except Exception as e:
+        logging.error(f"Translation failed: {e}. Returning original text.")
+        return {
+            "original": text,
+            "translated": text,
+            "was_translated": False,
+            "detected_language": "unknown",
+            "error": str(e),
+        }
 

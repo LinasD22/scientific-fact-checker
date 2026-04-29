@@ -1,37 +1,85 @@
 if (chrome.contextMenus) {
 
-chrome.runtime.onInstalled.addListener(() => {
-    chrome.contextMenus.removeAll(() => {
-        chrome.contextMenus.create({
-            id: "factCheckSelection",
-            title: "Fact Check Selection",
-            contexts: ["selection"]
-        });
-        if (chrome.runtime.lastError) {
-            console.log("Menu already exists, skipping...");
-        }
+const translations = {
+  en: {
+    contextMenuTitle: "Fact Check Selection",
+    limitReachedExplanation: "You have used your 3 free daily checks. Please login or register for unlimited access!",
+  },
+  lt: {
+    contextMenuTitle: "Fakto Tikrinimas",
+    limitReachedExplanation: "Naudojote 3 nemokamus dienos tikrinimus. Prisijunkite arba užsiregistruokite neribotam naudojimui!",
+  },
+};
+
+let currentLang = "en";
+
+async function getLang() {
+  const data = await chrome.storage.local.get("language");
+  if (data.language && ["en", "lt"].includes(data.language)) {
+    currentLang = data.language;
+  }
+}
+
+function t(key) {
+  const keys = key.split(".");
+  let value = translations[currentLang];
+  for (const k of keys) {
+    if (value && value[k] !== undefined) {
+      value = value[k];
+    } else {
+      return key;
+    }
+  }
+  return value;
+}
+
+chrome.runtime.onInstalled.addListener(async () => {
+  await getLang();
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "factCheckSelection",
+      title: t("contextMenuTitle"),
+      contexts: ["selection"]
     });
-});
-
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
-
-    if (info.menuItemId === "factCheckSelection") {
-      const selectedText = info.selectionText || "";
-
-      chrome.storage.local.set({ lastClaim: selectedText }, () => {
-        // SAFE INJECTION: Check if URL is a valid web page
-        if (tab.url.startsWith("http")) {
-          chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ["panel.js"]
-          }).catch(err => console.error("Injection failed:", err));
-        } else {
-          console.warn("Cannot inject scripts into internal chrome:// pages.");
-        }
-      });
+    if (chrome.runtime.lastError) {
+      console.log("Menu already exists, skipping...");
     }
   });
-}
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+
+  if (info.menuItemId === "factCheckSelection") {
+    const selectedText = info.selectionText || "";
+
+    chrome.storage.local.set({ lastClaim: selectedText }, () => {
+      if (tab.url.startsWith("http")) {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["panel.js"]
+        }).catch(err => console.error("Injection failed:", err));
+      } else {
+        console.warn("Cannot inject scripts into internal chrome:// pages.");
+      }
+    });
+  }
+});
+
+// Refresh context menu when language changes (optional)
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (changes.language) {
+    getLang().then(() => {
+      chrome.contextMenus.removeAll(() => {
+        chrome.contextMenus.create({
+          id: "factCheckSelection",
+          title: t("contextMenuTitle"),
+          contexts: ["selection"]
+        });
+      });
+    });
+  }
+});
+
 
 // Merged Message Listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -57,6 +105,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Updated checkFact function with Token Support
 async function checkFact(claim) {
+  await getLang(); // Load current language
 	// mock data
 	/*
 	return {
@@ -109,11 +158,12 @@ async function checkFact(claim) {
         }
 
         if (guestUsage.count >= LIMIT) {
-            return {
-                verdict: "Limit Reached",
-                explanation: "You have used your 3 free daily checks. Please login or register for unlimited access!"
-            };
-        }
+      await getLang();
+      return {
+          verdict: "Limit Reached",
+          explanation: t("limitReachedExplanation")
+      };
+    }
 
         // Increment and save guest usage
         guestUsage.count++;
@@ -155,3 +205,5 @@ chrome.action.onClicked.addListener((tab) => {
     });
   }
 });
+
+}

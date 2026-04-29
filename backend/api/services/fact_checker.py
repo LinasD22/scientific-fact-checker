@@ -253,7 +253,7 @@ class FactCheckerService:
         
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_to_db = {
-                #executor.submit(self._search_core, expanded_query, limit_per_db): "core",
+                executor.submit(self._search_core, expanded_query, limit_per_db): "core",
                 executor.submit(self._search_pubmed, query, limit_per_db): "pubmed"
             }
             

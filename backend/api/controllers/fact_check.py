@@ -2,8 +2,9 @@
 API endpoints for the fact checker plugin.
 """
 
+import asyncio
 from typing import Annotated
-from api.utils.ai_calls import extract_individual_facts
+from api.utils.ai_calls import extract_individual_facts, translate_to_english
 from fastapi import Body, APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
@@ -29,13 +30,13 @@ async def fact_check_with_search(
     """
     Full pipeline with preprocessing:
     1. Preprocess: Break text into individual factual claims using Mistral
-    2. For each claim:
-       a. Search Core API for relevant academic papers
-       b. Search Qdrant for high-relevance snippets
-       c. Use AI to fact-check snippets against the claim
+    2. For each claim (IN PARALLEL):
+        a. Search Core API for relevant academic papers
+        b. Search Qdrant for high-relevance snippets
+        c. Use AI to fact-check snippets against the claim
     3. Return results:
-       - Backward compatible: first fact in top-level fields
-       - New: all_results array with complete results for each fact
+        - Backward compatible: first fact in top-level fields
+        - New: all_results array with complete results for each fact
     """
     try:
         service = create_fact_checker()
@@ -46,29 +47,61 @@ async def fact_check_with_search(
         facts_result = extract_individual_facts(claim)
         print(f"\n=== FACT RESULTS COUNT AFTER EXTRACTING ===")
         print(f"{len(facts_result)} facts")
-        facts = facts_result.get("facts", [claim])  # Fallback to original if extraction fails
+        extracted_facts = facts_result.get("facts", [claim])  # Fallback to original if extraction fails
         
-        if not facts:
-            facts = [claim]  # Ensure we have at least one fact
+        if not extracted_facts:
+            extracted_facts = [claim]  # Ensure we have at least one fact
         
-        print(f"Extracted {len(facts)} fact(s) to check:")
-        for i, fact in enumerate(facts, 1):
+        print(f"Extracted {len(extracted_facts)} fact(s) to check:")
+        for i, fact in enumerate(extracted_facts, 1):
             print(f"  {i}. {fact}")
         
-        # ── Step 2: Fact-check each individual fact ──
-        all_results = []
+        # ── Step 1b: Translate non-English facts to English using Mistral ──
+        print(f"\n=== Translating facts to English (if needed) ===")
+        facts_to_check = []  # English facts for fact-checking
+        original_facts = []  # Original facts for response
         
-        for fact_idx, individual_fact in enumerate(facts):
-            print(f"\n=== Checking fact {fact_idx + 1}/{len(facts)}: {individual_fact} ===")
+        for i, fact in enumerate(extracted_facts, 1):
+            translation_result = translate_to_english(fact)
+            translated_text = translation_result["translated"]
+            was_translated = translation_result["was_translated"]
+            detected_lang = translation_result.get("detected_language", "unknown")
+            
+            facts_to_check.append(translated_text)
+            original_facts.append({
+                "original": fact,
+                "translated": translated_text,
+                "was_translated": was_translated,
+                "detected_language": detected_lang,
+            })
+            
+            if was_translated:
+                print(f"  Fact {i}: [{detected_lang} -> en] {fact}")
+            else:
+                print(f"  Fact {i}: [en] {fact}")
+        
+        # ── Step 2: Fact-check each individual fact IN PARALLEL ──
+        print(f"\n=== Starting parallel fact-checking for {len(facts_to_check)} facts ===")
+        
+        async def check_fact_async(fact_idx: int, fact_to_check: str, original_fact_info: dict):
+            """Wrapper to run blocking check_claim in thread pool."""
+            loop = asyncio.get_event_loop()
             try:
-                result = service.check_claim(
-                    original_claim=individual_fact,
-                    limit=LIMIT,
+                result = await loop.run_in_executor(
+                    None, 
+                    service.check_claim,
+                    fact_to_check,  # English version to check
+                    None,  # query parameter
+                    LIMIT,  # limit parameter
                 )
+                print(f"✓ Fact {fact_idx + 1}/{len(facts_to_check)} completed: {result.final_verdict}")
                 
-                all_results.append({
+                return {
                     "fact_index": fact_idx,
-                    "original_fact": individual_fact,
+                    "original_fact": original_fact_info["original"],
+                    "translated_fact": original_fact_info.get("translated"),
+                    "was_translated": original_fact_info.get("was_translated", False),
+                    "detected_language": original_fact_info.get("detected_language"),
                     "consensus": result.consensus,
                     "final_verdict": result.final_verdict,
                     "summary": result.summary,
@@ -85,28 +118,38 @@ async def fact_check_with_search(
                         }
                         for article in result.articles_used
                     ],
-                })
-                
-                print(f"Verdict: {result.final_verdict} (confidence: {result.agreement_score:.2f})")
-                
+                }
             except Exception as e:
-                print(f"Error checking fact {fact_idx + 1}: {str(e)}")
-                all_results.append({
+                print(f"✗ Error checking fact {fact_idx + 1}: {str(e)}")
+                return {
                     "fact_index": fact_idx,
-                    "original_fact": individual_fact,
+                    "original_fact": original_fact_info["original"],
+                    "translated_fact": original_fact_info.get("translated"),
+                    "was_translated": original_fact_info.get("was_translated", False),
+                    "detected_language": original_fact_info.get("detected_language"),
                     "error": str(e),
-                })
+                }
+        
+        # Run all fact checks in parallel
+        all_results = await asyncio.gather(
+            *[check_fact_async(fact_idx, facts_to_check[fact_idx], original_facts[fact_idx]) 
+              for fact_idx in range(len(facts_to_check))]
+        )
+        
+        print(f"\n=== All {len(facts_to_check)} facts completed ===")
         
         # ── Step 3: Return results ──
         # Backward compatible: first fact in top-level fields
         # Frontend-ready: all_results array with complete results
         first_result = all_results[0] if all_results else {}
         
+        first_original_fact = original_facts[0]["original"] if original_facts else claim
+        
         response_content = {
-            "total_facts_extracted": len(facts),
+            "total_facts_extracted": len(extracted_facts),
             "facts_checked": len([r for r in all_results if "error" not in r]),
             "current_fact_index": 0,  # Frontend placeholder
-            "current_fact": facts[0] if facts else claim,
+            "current_fact": first_original_fact,
             # === BACKWARD COMPATIBLE (first fact only) ===
             "consensus": first_result.get("consensus"),
             "final_verdict": first_result.get("final_verdict"),

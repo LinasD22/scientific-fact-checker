@@ -1,29 +1,29 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Fact Checker - Login</title>
+    <title data-i18n="title">Fact Checker - Login</title>
     <link rel="stylesheet" type="text/css" href="style.css">
 </head>
 <body class="flex-center">
 
     <div class="auth-card">
-        <h2 id="title">Login</h2>
+        <h2 id="title" data-i18n="loginTitle">Login</h2>
         
         <div id="errorDisplay" class="error-msg"></div>
 
         <div id="registerFields" style="display:none;">
-            <input type="text" id="firstName" placeholder="First Name">
-            <input type="text" id="lastName" placeholder="Last Name">
+            <input type="text" id="firstName" data-i18n-placeholder="firstName" placeholder="First Name">
+            <input type="text" id="lastName" data-i18n-placeholder="lastName" placeholder="Last Name">
         </div>
         
-        <input type="email" id="email" placeholder="Email">
-        <input type="password" id="password" placeholder="Password">
+        <input type="email" id="email" data-i18n-placeholder="email" placeholder="Email">
+        <input type="password" id="password" data-i18n-placeholder="password" placeholder="Password">
         
-        <button id="authBtn" class="button">Sign In</button>
+        <button id="authBtn" class="button" data-i18n="signIn">Sign In</button>
         
         <div class="toggle-text">
-            <span id="toggleQuestion">Don't have an account?</span> 
-            <span id="toggleLink" class="link-span">Register</span>
+            <span id="toggleQuestion" data-i18n="dontHaveAccount">Don't have an account?</span> 
+            <span id="toggleLink" class="link-span" data-i18n="register">Register</span>
         </div>
     </div>
 

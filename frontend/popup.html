@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>MediCheck</title>
+  <title data-i18n="title">MediCheck</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 
@@ -10,15 +10,16 @@
   <div class="container">
     <header>
       <div class="logo-circle">⚕️</div>
-      <h1>MediCheck</h1>
+      <h1 data-i18n="appTitle">MediCheck</h1>
+	  <button id="languageToggle" style="width: auto; margin: 0; padding: 5px; background: none; box-shadow: none; font-size: 16px; margin-left: 8px;" title="Switch language">EN</button>
 	  <button id="themeToggle" style="width: auto; margin: 0; padding: 5px; background: none; box-shadow: none; font-size: 16px; margin-left: auto;">
 		🌙
 	  </button>
     </header>
 
     <div id="authContainer" style="padding: 10px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
-      <span id="userInfo" style="font-size: 12px; color: #555;">Not logged in</span>
-      <button id="authBtnAction" style="font-size: 10px;">Login or Register</button>
+      <span id="userInfo" style="font-size: 12px; color: #555;" data-i18n="notLoggedIn">Not logged in</span>
+      <button id="authBtnAction" style="font-size: 10px;" data-i18n="loginOrRegister">Login or Register</button>
     </div>
     
     <button id="closePanelBtn" style="background:none; color:#64748b; width:auto; margin:0; position:absolute; top:15px; right:15px; box-shadow:none;">✕</button>
@@ -26,14 +27,15 @@
     <div class="input-section">
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
     <label style="font-size: 12px; color: var(--text-muted); font-weight: 600;">CLAIM</label>
-    <button id="clearBtn" style="background:none; color:var(--primary); width:auto; margin:0; padding:0; box-shadow:none; font-size:12px; text-decoration:underline;">Clear</button>
+    <button id="clearBtn" style="background:none; color:var(--primary); width:auto; margin:0; padding:0; box-shadow:none; font-size:12px; text-decoration:underline;" data-i18n="clear">Clear</button>
   </div>
   <textarea
     id="claimInput"
+    data-i18n-placeholder="claimPlaceholder"
     placeholder="Paste a health claim to verify..."
   ></textarea>
   <button id="checkBtn">
-    <span id="btnText">Check Fact</span>
+    <span id="btnText" data-i18n="checkFact">Check Fact</span>
   </button>
 </div>
 
@@ -45,7 +47,7 @@
     </svg>
     <div class="scoreCenter">
       <span id="scoreValue">0</span>
-      <span class="scoreLabel">Confidence</span>
+      <span class="scoreLabel" data-i18n="confidence">Confidence</span>
     </div>
   </div>
 
@@ -57,25 +59,23 @@
 
   <div id="individualFactsContainer" style="display: none;">
     <hr class="divider">
-    <div style="font-size: 13px; font-weight: 700; text-align: left; margin-bottom: 10px;">Individual Claims</div>
+    <div style="font-size: 13px; font-weight: 700; text-align: left; margin-bottom: 10px;" data-i18n="individualClaims">Individual Claims</div>
     <div id="individualFactsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
   </div>
 
   <hr class="divider">
 
   <details class="evidence-section">
-    <summary>Sources Used (<span id="sourceCount">0</span>)</summary>
+    <summary><span data-i18n="sourcesUsedPrefix">Sources Used</span>: <span id="sourceCount">0</span></summary>
     <div id="articlesList" class="articles-container"></div>
-              <div class="section-header">Evidence by Source</div>
-        <div id="evidenceList"></div>
-
-
+    <div class="section-header" data-i18n="evidenceBySource">Evidence by Source</div>
+    <div id="evidenceList"></div>
   </details>
 
 
 
   <details class="debug-section">
-    <summary>Raw JSON Response</summary>
+    <summary data-i18n="rawJsonResponse">Raw JSON Response</summary>
     <pre id="rawResponse"></pre>
   </details>
 </div>
