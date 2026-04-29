@@ -58,11 +58,11 @@ const translations = {
     appTitle: "MediCheck",
     notLoggedIn: "Neprisijungęs",
     loginOrRegister: "Prisijungti arba Registruotis",
-    claimPlaceholder: "Įklijuokite sveikatos teiginį patikrinimui...",
+    claimPlaceholder: "Įdėkite sveikatos teiginį patikrinimui...",
     clear: "Išvalyti",
     checkFact: "Tikrinti faktą",
     checking: "Tikrinama...",
-    confidence: "Pasitikėjimas",
+    confidence: "Patikimumas",
     individualClaims: "Atskiri teiginiai",
     sourcesUsedPrefix: "Naudoti šaltiniai",
     evidenceBySource: "Įrodymai pagal šaltinį",
@@ -101,6 +101,23 @@ const translations = {
 
 let currentLang = "en";
 
+// ── Explanation Translations (Lithuanian) ─────────────────────────────────────
+const explanationTranslations = {
+  lt: {
+    "The provided source does not support the claim that": "Duomenų šaltinis nepalaiko teiginio, kad",
+    "eggs cause immortality": "kiaušiniaí padaro nešmiertelius",
+    "The text discusses": "Tekste aptariama",
+    "the rarity and difficulty of achieving": "reitės ir sunkumo pasiekimo",
+    "cellular immortality in cancer biology": "kelių nešmiertelumas vėžio biologijoje",
+    "with no mention of dietary factors like eggs": "nekalbama apie dietinius faktorius, tokius kaip kiaušiniai",
+    "No evidence found in the provided sources to support this claim.": "Įrodymai, palaikantys šį teiginį, nėra pateiktuose šaltinyse.",
+    "The sources do not provide sufficient information to verify this claim.": "Šaltiniuose nedadieja pakankamai informacijos šio teiginio patikrinimui.",
+    "Multiple sources contradict this claim.": "Daug šaltiunių konfliktуoja su šiuo teiginiu.",
+    "The claim is partially supported by some evidence, but significant contradictions exist.": "Teiginys dalinai palaikomas įrodaми, tačiau egzistuoja svarbų kontraktų.",
+    "Insufficient evidence to reach a definitive conclusion.": "Netęstį įrodymų, kad pasiektų definitivo įvairo.",
+  }
+};
+
 function t(key, params = {}) {
   const keys = key.split(".");
   let value = translations[currentLang];
@@ -124,33 +141,58 @@ function t(key, params = {}) {
 }
 
 function translateVerdict(verdict) {
-  const map = {
-    en: {
-      verified: "VERIFIED",
-      false: "FALSE",
-      unverifiable: "UNCERTAIN",
-      conflicting: "CONFLICTING",
-      partially_verified: "PARTIALLY VERIFIED",
-      limit: "LIMIT",
-      uncertain: "UNCERTAIN",
-      "limit reached": "LIMIT REACHED",
-      "daily limit reached": "DAILY LIMIT REACHED",
-    },
-    lt: {
-      verified: "PATVIRINTAS",
-      false: "KLAIDINGA",
-      unverifiable: "NEAIŠKU",
-      conflicting: "KONFLIKTUOJA",
-      partially_verified: "DAUGIAU MAŽIAU PATVIRINTAS",
-      limit: "LIMITAS",
-      uncertain: "NEAIŠKU",
-      "limit reached": "LIMITAS PASIEKTAS",
-      "daily limit reached": "DIENOS LIMITAS PASIEKTAS",
-    },
-  };
-  const key = verdict.toLowerCase();
-  return map[currentLang][key] || verdict.toUpperCase();
-}
+   const map = {
+     en: {
+       verified: "VERIFIED",
+       false: "FALSE",
+       unverifiable: "UNCERTAIN",
+       conflicting: "CONFLICTING",
+       partially_verified: "PARTIALLY VERIFIED",
+       limit: "LIMIT",
+       uncertain: "UNCERTAIN",
+       "limit reached": "LIMIT REACHED",
+       "daily limit reached": "DAILY LIMIT REACHED",
+     },
+     lt: {
+       verified: "PATVIRINTAS",
+       false: "KLAIDINGA",
+       unverifiable: "NEAIŠKU",
+       conflicting: "KONFLIKTUOJA",
+       partially_verified: "DAUGIAU MAŽIAU PATVIRINTAS",
+       limit: "LIMITAS",
+       uncertain: "NEAIŠKU",
+       "limit reached": "LIMITAS PASIEKTAS",
+       "daily limit reached": "DIENOS LIMITAS PASIEKTAS",
+     },
+   };
+   const key = verdict.toLowerCase();
+   return map[currentLang][key] || verdict.toUpperCase();
+ }
+
+ function translateExplanation(text) {
+   // If not Lithuanian, return original text
+   if (currentLang !== "lt") {
+     return text;
+   }
+
+   // Try to translate using our dictionary
+   const translations = explanationTranslations.lt;
+   if (translations && text) {
+     // Check for exact match first
+     if (translations[text]) {
+       return translations[text];
+     }
+     
+     // Try to find and replace known phrases
+     let translated = text;
+     for (const [english, lithuanian] of Object.entries(translations)) {
+       translated = translated.split(english).join(lithuanian);
+     }
+     return translated;
+   }
+   
+   return text; // fallback to original
+ }
 
 function applyTranslations() {
   document.querySelectorAll("[data-i18n]").forEach((el) => {
@@ -171,22 +213,23 @@ function applyTranslations() {
 
 // ── Theme Toggle ───────────────────────────────────────────────────────────────
 chrome.storage.local.get(["theme", "language"], (data) => {
-  // Theme
-  if (data.theme === "dark") {
-    document.body.classList.add("dark-mode");
-    themeToggle.textContent = "☀️";
-  } else {
-    themeToggle.textContent = "🌙";
-  }
+   // Theme
+   if (data.theme === "dark") {
+     document.body.classList.add("dark-mode");
+     themeToggle.textContent = "☀️";
+   } else {
+     themeToggle.textContent = "🌙";
+   }
 
-  // Language
-  if (data.language && ["en", "lt"].includes(data.language)) {
-    currentLang = data.language;
-  }
-  applyTranslations();
+   // Language
+   if (data.language && ["en", "lt"].includes(data.language)) {
+     currentLang = data.language;
+   }
+   applyTranslations();
+   updateLanguageButtonText();
 
-  // Update UI (which also updates auth button text)
-  updateUI();
+   // Update UI (which also updates auth button text)
+   updateUI();
 });
 
 themeToggle.addEventListener("click", () => {
@@ -196,10 +239,30 @@ themeToggle.addEventListener("click", () => {
 });
 
 languageToggle.addEventListener("click", () => {
-  currentLang = currentLang === "en" ? "lt" : "en";
-  chrome.storage.local.set({ language: currentLang });
-  applyTranslations();
-  updateUI(); // Re-run to update dynamic text (guest count, etc.)
+    currentLang = currentLang === "en" ? "lt" : "en";
+    chrome.storage.local.set({ language: currentLang });
+    applyTranslations();
+    updateLanguageButtonText();
+    // Retranslate explanations if we have a stored response
+    if (lastResponse) {
+        retranslateExplanations();
+    }
+    // Update UI is called via DOMContentLoaded listener
+});
+
+// Listen for language changes from other parts of the extension (e.g., background.js)
+chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (changes.language) {
+        currentLang = changes.language.newValue;
+        applyTranslations();
+        updateLanguageButtonText();
+        // Retranslate explanations if we have a stored response
+        if (lastResponse) {
+            retranslateExplanations();
+        }
+        // Update UI (guest count, etc.)
+        updateUI();
+    }
 });
 
 // ── Load selected text but DO NOT auto-check ─────────────────────────────────
@@ -236,16 +299,19 @@ function autoCheck() {
       checkBtn.disabled = false;
       btnText.textContent = t("checkFact");
 
-      if (response.verdict === "Limit Reached") {
-        updateUI();
-        resultCard.classList.remove("hidden");
-        const verdictEl = document.getElementById("finalVerdict");
-        verdictEl.textContent = t("verdict.limitReached");
-        verdictEl.setAttribute("data-i18n", "verdict.limitReached");
-        verdictEl.className = "verdict uncertain";
-        document.getElementById("finalExplanation").textContent = response.explanation;
-        return;
-      }
+         if (response.verdict === "Limit Reached") {
+           updateUI();
+           resultCard.classList.remove("hidden");
+           const verdictEl = document.getElementById("finalVerdict");
+           verdictEl.textContent = t("verdict.limitReached");
+           verdictEl.setAttribute("data-i18n", "verdict.limitReached");
+           verdictEl.className = "verdict uncertain";
+           const explanationEl = document.getElementById("finalExplanation");
+           explanationEl.textContent = translateExplanation(response.explanation);
+           // Store response for re-translation when language changes
+           lastResponse = response;
+           return;
+         }
 
       const verdictEl = document.getElementById("finalVerdict");
       const verdictText = (response.verdict || "").toLowerCase();
@@ -261,8 +327,9 @@ function autoCheck() {
         verdictEl.classList.add("false");
       else verdictEl.classList.add("uncertain");
 
-      resultCard.classList.remove("hidden");
-      document.getElementById("finalExplanation").textContent = response.explanation;
+        resultCard.classList.remove("hidden");
+        const explanationEl = document.getElementById("finalExplanation");
+        explanationEl.textContent = translateExplanation(response.explanation);
 
       const factsContainer = document.getElementById("individualFactsContainer");
       const factsList = document.getElementById("individualFactsList");
@@ -281,13 +348,13 @@ function autoCheck() {
           else if (vText.includes("refuted") || vText.includes("false"))
             vClass = "false";
 
-          factDiv.innerHTML = `
-                <div class="fact-claim">"${fact.claim}"</div>
-                <div style="margin-bottom: 6px;">
-                    <span class="fact-verdict ${vClass}" data-verdict-key="${fact.verdict || "uncertain"}">${translateVerdict(fact.verdict || "uncertain")}</span>
-                </div>
-                <div class="fact-explanation">${fact.explanation || fact.summary || ""}</div>
-            `;
+           factDiv.innerHTML = `
+                 <div class="fact-claim">"${fact.claim}"</div>
+                 <div style="margin-bottom: 6px;">
+                     <span class="fact-verdict ${vClass}" data-verdict-key="${fact.verdict || "uncertain"}">${translateVerdict(fact.verdict || "uncertain")}</span>
+                 </div>
+                 <div class="fact-explanation">${translateExplanation(fact.explanation || fact.summary || "")}</div>
+             `;
           factsList.appendChild(factDiv);
         });
       } else {
@@ -386,23 +453,63 @@ function updateScoreRing(score) {
 }
 
 function animateScoreText(targetScore) {
-  const scoreText = document.getElementById("scoreValue");
-  if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
-    scoreText.textContent = "!";
-    return;
-  }
+   const scoreText = document.getElementById("scoreValue");
+   if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
+     scoreText.textContent = "!";
+     return;
+   }
 
-  let current = 0;
-  if (window.scoreInterval) clearInterval(window.scoreInterval);
+   let current = 0;
+   if (window.scoreInterval) clearInterval(window.scoreInterval);
 
-  window.scoreInterval = setInterval(() => {
-    current += Math.ceil(targetScore / 20);
-    if (current >= targetScore) {
-      current = targetScore;
-      clearInterval(window.scoreInterval);
+   window.scoreInterval = setInterval(() => {
+     current += Math.ceil(targetScore / 20);
+     if (current >= targetScore) {
+       current = targetScore;
+       clearInterval(window.scoreInterval);
+     }
+     scoreText.textContent = current;
+   }, 30);
+ }
+
+function retranslateExplanations() {
+    if (!lastResponse) return;
+    
+    // Retranslate main explanation
+    const explanationEl = document.getElementById("finalExplanation");
+    if (explanationEl) {
+        explanationEl.textContent = translateExplanation(lastResponse.explanation);
     }
-    scoreText.textContent = current;
-  }, 30);
+    
+    // Retranslate individual fact explanations
+    const factsList = document.getElementById("individualFactsList");
+    if (factsList && lastResponse.individual_facts) {
+        const factItems = factsList.getElementsByClassName("fact-item");
+        for (let i = 0; i < factItems.length && i < lastResponse.individual_facts.length; i++) {
+            const factExplanationEl = factItems[i].querySelector(".fact-explanation");
+            if (factExplanationEl) {
+                factExplanationEl.textContent = translateExplanation(lastResponse.individual_facts[i].explanation || lastResponse.individual_facts[i].summary || "");
+            }
+        }
+    }
+    
+    // Retranslate evidence explanations
+    const evidenceList = document.getElementById("evidenceList");
+    if (evidenceList && lastResponse.individual_results) {
+        const evidenceItems = evidenceList.getElementsByClassName("evidence-item");
+        for (let i = 0; i < evidenceItems.length && i < lastResponse.individual_results.length; i++) {
+            const evidenceExplanationEl = evidenceItems[i].querySelector(".evidence-explanation");
+            if (evidenceExplanationEl) {
+                evidenceExplanationEl.textContent = translateExplanation(lastResponse.individual_results[i].explanation || "");
+            }
+        }
+    }
+}
+
+function updateLanguageButtonText() {
+    const languageToggle = document.getElementById("languageToggle");
+    // Show the opposite language: if current is EN, show LT to switch to LT; if current is LT, show EN to switch to EN
+    languageToggle.textContent = currentLang === "en" ? "LT" : "EN";
 }
 
 document.getElementById("closePanelBtn").addEventListener("click", () => {

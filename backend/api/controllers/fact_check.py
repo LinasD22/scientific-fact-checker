@@ -77,6 +77,7 @@ async def fact_check_with_search(
             
             if was_translated:
                 print(f"  Fact {i}: [{detected_lang} -> en] {fact}")
+                print(f"  Translated Fact {i}:  {translated_text}")
             else:
                 print(f"  Fact {i}: [en] {fact}")
         

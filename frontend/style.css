@@ -431,13 +431,15 @@ body.dark-mode .container::-webkit-scrollbar-thumb {
   width: auto;
   margin: 0;
   padding: 8px;
-  background: none;
-  box-shadow: none;
+  background: var(--primary);
+  color: white;
+  border-radius: 4px;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   margin-left: 8px;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, background 0.2s ease;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
 }
 
 #languageToggle:hover {
