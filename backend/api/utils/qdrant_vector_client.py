@@ -30,6 +30,7 @@ from qdrant_client.models import (
     PayloadSchemaType,
     PointStruct,
     QuantizationSearchParams,
+    ScalarQuantization,
     ScalarQuantizationConfig,
     ScalarType,
     SearchParams,
@@ -131,10 +132,12 @@ class QdrantVectorClient:
                     ef_construct=200,   # default 100
                     on_disk=False,
                 ),
-                quantization_config=ScalarQuantizationConfig(
-                    type=ScalarType.INT8,
-                    quantile=0.99,
-                    always_ram=True,
+                quantization_config=ScalarQuantization(
+                    scalar=ScalarQuantizationConfig(
+                        type=ScalarType.INT8,
+                        quantile=0.99,
+                        always_ram=True,
+                    )
                 ),
                 optimizers_config=OptimizersConfigDiff(
                     indexing_threshold=5000,
@@ -266,6 +269,124 @@ class QdrantVectorClient:
             )
 
         return len(points)
+
+    # ── Bulk indexing (background indexer) ────────────────────────────────────
+
+    def store_bulk_batch(
+        self,
+        articles: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        """
+        Indeksuoja kelis straipsnius vienu embed kvietimu.
+
+        Vietoj N atskirų `_store_work` kvietimų (kiekvienas su savo `_embed`),
+        šis metodas:
+          1. Suchunk'ina visus straipsnius
+          2. Iškviečia `_embed` VIENĄ kartą su visais chunk'ais iš karto
+          3. Batch upsert'ina viską į Qdrant
+
+        Args:
+            articles: Sąrašas dict'ų su raktais:
+                        pmc_id, title, text, source_db, source_id,
+                        authors (optional), published_date (optional), url (optional)
+
+        Returns:
+            {pmc_id: n_chunks_stored} — tik sėkmingai indeksuotų straipsnių.
+        """
+        if not articles:
+            return {}
+
+        # ── 1. Chunk'iname kiekvieną straipsnį, renkame į vieną sąrašą ───────
+        # Struktūra: [(chunk_text, metadata_dict), ...]
+        all_chunks: list[str] = []
+        all_meta:   list[dict[str, Any]] = []
+
+        skipped_fingerprint = 0
+        article_chunk_counts: dict[str, int] = {}  # pmc_id → kiek chunk'ų
+
+        for art in articles:
+            pmc_id = art.get("pmc_id", "")
+            title  = art.get("title") or "Unknown"
+            text   = art.get("text") or ""
+
+            if not text:
+                continue
+
+            raw_chunks = self.splitter.split_text(text)
+            if not raw_chunks:
+                continue
+
+            fingerprint = self._fingerprint(title, text)
+
+            # Fingerprint check — apsauga nuo to paties straipsnio per du topic'us
+            if self._is_cached(fingerprint):
+                logging.debug(f"store_bulk_batch: skip (fingerprint) {pmc_id}")
+                skipped_fingerprint += 1
+                continue
+
+            meta = {
+                "source":         title,
+                "fingerprint":    fingerprint,
+                "source_db":      art.get("source_db", "pubmed_bulk"),
+                "source_id":      pmc_id,
+                "authors":        art.get("authors"),
+                "published_date": art.get("published_date"),
+                "url":            art.get("url"),
+            }
+
+            start_idx = len(all_chunks)
+            all_chunks.extend(raw_chunks)
+            all_meta.extend([meta] * len(raw_chunks))
+            article_chunk_counts[pmc_id] = len(raw_chunks)
+
+            logging.debug(
+                f"store_bulk_batch: queued [{pmc_id}] "
+                f"{title[:50]} → {len(raw_chunks)} chunks (offset {start_idx})"
+            )
+
+        if skipped_fingerprint:
+            logging.info(f"store_bulk_batch: {skipped_fingerprint} straipsniai praleisti (fingerprint)")
+
+        if not all_chunks:
+            logging.info("store_bulk_batch: nėra naujų chunk'ų indeksavimui")
+            return {}
+
+        # ── 2. Vienas embed kvietimas su VISAIS chunk'ais ─────────────────────
+        logging.info(
+            f"store_bulk_batch: embed {len(all_chunks)} chunk'ų "
+            f"iš {len(article_chunk_counts)} straipsnių..."
+        )
+        t0 = __import__("time").monotonic()
+        vectors = self._embed(all_chunks)
+        elapsed = __import__("time").monotonic() - t0
+        logging.info(f"store_bulk_batch: embed baigtas [{elapsed:.1f}s]")
+
+        # ── 3. Sukuriame PointStruct objektus ────────────────────────────────
+        points = [
+            PointStruct(
+                id=str(__import__("uuid").uuid4()),
+                vector=vectors[i],
+                payload={
+                    "chunk_text": all_chunks[i],
+                    **all_meta[i],
+                },
+            )
+            for i in range(len(all_chunks))
+        ]
+
+        # ── 4. Batch upsert ───────────────────────────────────────────────────
+        for i in range(0, len(points), _UPSERT_BATCH_SIZE):
+            self.client.upsert(
+                collection_name=COLLECTION,
+                points=points[i : i + _UPSERT_BATCH_SIZE],
+            )
+
+        logging.info(
+            f"store_bulk_batch: upsert'inta {len(points)} chunk'ų "
+            f"({len(article_chunk_counts)} straipsnių)"
+        )
+
+        return article_chunk_counts
 
     # ── Core search ────────────────────────────────────────────────────────────
 
