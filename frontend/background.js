@@ -4,7 +4,7 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.removeAll(() => {
         chrome.contextMenus.create({
             id: "factCheckSelection",
-            title: "Fact Check Selection",
+            title: "Fact Check Selection (Default: Alt+Shift+F)",
             contexts: ["selection"]
         });
         if (chrome.runtime.lastError) {
@@ -40,7 +40,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === "FACT_CHECK") {
         // Handle fact check request
         checkFact(request.claim)
-            .then(result => sendResponse(result))
+            .then(result => {
+				sendResponse(result);
+				
+				chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+					if (tabs[0]) {
+						chrome.tabs.sendMessage(tabs[0].id, {
+							type: "HIGHLIGHT_TEXT",
+							claim: request.claim,
+							results: result
+						});
+					}
+				});
+			})
             .catch(err => {
                 console.error("Fact check error:", err);
                 sendResponse({ verdict: "Error", explanation: "Fact check failed." });
@@ -59,9 +71,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function checkFact(claim) {
     // Determine your URL (use local for testing, ddns for production)
     //server
-    //const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+    const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
     //local
-    const API_URL = "http://localhost:8000/api/fact-check/search";
+    //const API_URL = "http://localhost:8000/api/fact-check/search";
 
     // Retrieve the token from storage
     const { token } = await chrome.storage.local.get("token");
@@ -106,6 +118,7 @@ async function checkFact(claim) {
 
     const mappedFacts = (data.all_results || []).map(res => ({
         claim: res.original_fact || "Unknown Claim",
+		exact_quote: res.exact_quote || res.original_fact || "Unknown Claim",
         verdict: res.final_verdict || "unverifiable",
         explanation: res.summary || "",
         score: typeof res.agreement_score === "number" ? res.agreement_score : 0,
@@ -129,6 +142,34 @@ chrome.action.onClicked.addListener((tab) => {
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ["panel.js"]
+    });
+  }
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === "trigger-fact-check") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs[0];
+      if (!activeTab || !activeTab.url.startsWith("http")) return;
+
+      // 1. Get the selected text from the page
+      chrome.scripting.executeScript({
+        target: { tabId: activeTab.id },
+        func: () => window.getSelection().toString()
+      }).then(results => {
+        const selectedText = results[0].result;
+        
+        if (selectedText && selectedText.trim().length > 0) {
+          // 2. Store it so the panel can find it
+          chrome.storage.local.set({ lastClaim: selectedText }, () => {
+            // 3. Inject the panel.js to show the UI
+            chrome.scripting.executeScript({
+              target: { tabId: activeTab.id },
+              files: ["panel.js"]
+            }).catch(err => console.error("Injection failed:", err));
+          });
+        }
+      });
     });
   }
 });

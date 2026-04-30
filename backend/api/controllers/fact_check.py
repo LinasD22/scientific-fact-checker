@@ -95,21 +95,28 @@ async def fact_check_with_search(
         print(f"\n=== ORIGINAL WHOLE CLAIM: {claim} ===")
         print(f"\n=== Preprocessing: Extracting individual facts ===")
         facts_result = extract_individual_facts(claim)
-        print(f"\n=== FACT RESULTS COUNT AFTER EXTRACTING ===")
-        print(f"{len(facts_result)} facts")
-        facts = facts_result.get("facts", [claim])  # Fallback to original if extraction fails
         
-        if not facts:
-            facts = [claim]  # Ensure we have at least one fact
+        # Accommodate the new AI format (dicts with exact_quote) while falling back to strings if needed
+        raw_facts = facts_result.get("facts", [claim]) 
+        facts = []
+        for f in raw_facts:
+            if isinstance(f, dict):
+                facts.append(f)
+            else:
+                # Fallback if the AI just returns a string
+                facts.append({"fact": f, "exact_quote": f})
         
         print(f"Extracted {len(facts)} fact(s) to check:")
-        for i, fact in enumerate(facts, 1):
-            print(f"  {i}. {fact}")
+        for i, f_obj in enumerate(facts, 1):
+            print(f"  {i}. {f_obj['fact']} (Quote: {f_obj.get('exact_quote', 'N/A')})")
         
         # ── Step 2: Fact-check each individual fact ──
         all_results = []
         
-        for fact_idx, individual_fact in enumerate(facts):
+        for fact_idx, f_obj in enumerate(facts):
+            individual_fact = f_obj["fact"]
+            exact_quote = f_obj.get("exact_quote", individual_fact) # Grab the exact quote
+            
             print(f"\n=== Checking fact {fact_idx + 1}/{len(facts)}: {individual_fact} ===")
             try:
                 result = service.check_claim(
@@ -120,6 +127,7 @@ async def fact_check_with_search(
                 all_results.append({
                     "fact_index": fact_idx,
                     "original_fact": individual_fact,
+                    "exact_quote": exact_quote, # <--- ADD THIS NEW FIELD
                     "consensus": result.consensus,
                     "final_verdict": result.final_verdict,
                     "summary": result.summary,

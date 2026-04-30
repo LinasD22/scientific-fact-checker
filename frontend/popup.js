@@ -88,6 +88,7 @@ checkBtn.addEventListener("click", autoCheck);
 
 // ... existing code (theme logic, clearBtn, etc.) ...
 
+
 function autoCheck() {
   const claim = claimInput.value.trim();
   if (!claim) return;
@@ -192,8 +193,6 @@ function autoCheck() {
   );
 }
 
-// --- NEW HELPER FUNCTIONS (Add these at the very bottom of popup.js) ---
-
 function getVerdictClass(verdict) {
     const vText = (verdict || "").toLowerCase();
     if (vText.includes("supported") || vText.includes("true") || vText.includes("verified") || vText.includes("accurate")) return "true";
@@ -231,8 +230,6 @@ function updateArticlesList(articles) {
     }
 }
 
-// Keep your existing updateScoreRing and sendHeight functions below...
-
 function sendHeight() {
   const height = document.body.scrollHeight;
   window.parent.postMessage({ type: "RESIZE_PANEL", height: height }, "*");
@@ -242,48 +239,56 @@ function sendHeight() {
 window.addEventListener("load", sendHeight);
 
 function updateScoreRing(score) {
-  const circle = document.getElementById("ringProgress");
+  const ring = document.getElementById("ringProgress");
+  if (!ring) return;
+
+  // Ensure score is a rounded integer
+  const roundedScore = Math.round(score || 0);
   
-  // Radius is 52. Circumference = 2 * PI * r
-  const radius = 52;
+  const radius = ring.r.baseVal.value;
   const circumference = 2 * Math.PI * radius;
 
-  // Calculate the offset
-  const offset = circumference - (score / 100) * circumference;
-  circle.style.strokeDashoffset = offset;
+  ring.style.strokeDasharray = `${circumference} ${circumference}`;
+  const offset = circumference - (roundedScore / 100) * circumference;
+  ring.style.strokeDashoffset = offset;
 
-  // Dynamic colors matching CSS variables
-  if (score >= 70) {
-    circle.style.stroke = "var(--score-high)";
-  } else if (score >= 40) {
-    circle.style.stroke = "var(--score-mid)";
+  // Color logic
+  if (roundedScore >= 70) {
+    ring.style.stroke = "var(--score-high)";
+  } else if (roundedScore >= 40) {
+    ring.style.stroke = "var(--score-mid)";
   } else {
-    circle.style.stroke = "var(--score-low)";
+    ring.style.stroke = "var(--score-low)";
   }
   
-  animateScoreText(score);
+  animateScoreText(roundedScore);
 }
 
 function animateScoreText(targetScore) {
   const scoreText = document.getElementById("scoreValue");
   
   if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
-    scoreText.textContent = "!";
+    scoreText.textContent = "0"; // Changed from "!" to "0" for cleaner look
     return;
   }
 
+  // Ensure target is an integer
+  const finalTarget = Math.round(targetScore);
   let current = 0;
-  // Clear any existing intervals to prevent glitches on rapid clicks
+
   if (window.scoreInterval) clearInterval(window.scoreInterval);
 
   window.scoreInterval = setInterval(() => {
-    current += Math.ceil(targetScore / 20); // Dynamic step size
+    // Incrementing logic
+    const step = Math.ceil(finalTarget / 20) || 1;
+    current += step;
     
-    if (current >= targetScore) {
-      current = targetScore;
+    if (current >= finalTarget) {
+      current = finalTarget;
       clearInterval(window.scoreInterval);
     }
     
+    // Display as integer
     scoreText.textContent = current;
   }, 30);
 }
