@@ -17,8 +17,8 @@ const ocrFileName   = document.getElementById("ocrFileName");
 const ocrSpinner    = document.getElementById("ocrSpinner");
 const ocrError      = document.getElementById("ocrError");
 
-//const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
- const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
+const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
+// const OCR_API_URL = //"http://localhost:8000/api/fact-check/ocr"; // local dev
 
 // ── OCR helpers ───────────────────────────────────────────────────────────────
 function ocrShowState(state, message = "") {
@@ -116,14 +116,6 @@ ocrDropZone.addEventListener("drop", (e) => {
   if (file) runOCR(file);
 });
 
-// ── Theme ─────────────────────────────────────────────────────────────────────
-chrome.storage.local.get("theme", (data) => {
-  if (data.theme === "dark") {
-    document.body.classList.add("dark-mode");
-    themeToggle.textContent = "☀️";
-  } else {
-    themeToggle.textContent = "🌙";
-  }
 let lastResponse = null; // Store the latest API response for language switching
 
 // ── Translations ──────────────────────────────────────────────────────────────
@@ -670,7 +662,7 @@ function updateScoreRing(score) {
   } else {
     ring.style.stroke = "var(--score-low)";
   }
-  
+
   animateScoreText(roundedScore);
 }
 
@@ -743,113 +735,12 @@ function updateLanguageButtonText() {
     languageToggle.textContent = currentLang === "en" ? "LT" : "EN";
 }
 
-function animateScoreText(targetScore) {
-   const scoreText = document.getElementById("scoreValue");
-   if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
-     scoreText.textContent = "!";
-     return;
-   }
-
-   let current = 0;
-   if (window.scoreInterval) clearInterval(window.scoreInterval);
-
-   window.scoreInterval = setInterval(() => {
-     current += Math.ceil(targetScore / 20);
-     if (current >= targetScore) {
-       current = targetScore;
-       clearInterval(window.scoreInterval);
-     }
-     scoreText.textContent = current;
-   }, 30);
- }
-
-function retranslateExplanations() {
-    if (!lastResponse) return;
-
-    // Retranslate main explanation
-    const explanationEl = document.getElementById("finalExplanation");
-    if (explanationEl) {
-        explanationEl.textContent = getLocalizedExplanation(lastResponse);
-    }
-
-    // Retranslate individual fact explanations
-    const factsList = document.getElementById("individualFactsList");
-    if (factsList && lastResponse.individual_facts) {
-        const factItems = factsList.getElementsByClassName("fact-item");
-        for (let i = 0; i < factItems.length && i < lastResponse.individual_facts.length; i++) {
-            const factExplanationEl = factItems[i].querySelector(".fact-explanation");
-            if (factExplanationEl) {
-                factExplanationEl.textContent = getLocalizedExplanation(lastResponse.individual_facts[i]);
-            }
-        }
-    }
-
-    // Retranslate evidence explanations
-    const evidenceList = document.getElementById("evidenceList");
-    if (evidenceList && lastResponse.individual_results) {
-        const evidenceItems = evidenceList.getElementsByClassName("evidence-item");
-        for (let i = 0; i < evidenceItems.length && i < lastResponse.individual_results.length; i++) {
-            const evidenceExplanationEl = evidenceItems[i].querySelector(".evidence-explanation");
-            if (evidenceExplanationEl) {
-                evidenceExplanationEl.textContent = getLocalizedExplanation(lastResponse.individual_results[i]);
-            }
-        }
-    }
-}
-
-function updateLanguageButtonText() {
-    const languageToggle = document.getElementById("languageToggle");
-    // Show the opposite language: if current is EN, show LT to switch to LT; if current is LT, show EN to switch to EN
-    languageToggle.textContent = currentLang === "en" ? "LT" : "EN";
-}
-
 document.getElementById("closePanelBtn").addEventListener("click", () => {
   window.parent.postMessage({ type: "CLOSE_PANEL" }, "*");
 });
 
-// ── Auth & UI ─────────────────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", function () {
-  const authBtnAction = document.getElementById("authBtnAction");
-  const userInfo = document.getElementById("userInfo");
-
-  function updateUI() {
-    chrome.storage.local.get(["token", "userEmail", "guestUsage"], (result) => {
-      const today = new Date().toLocaleDateString();
-      const checkBtn = document.getElementById("checkBtn");
-      const btnText = document.getElementById("btnText");
-      const LIMIT = 3;
-
-      if (result.token) {
-        userInfo.innerText = t("loggedInAs", { email: result.userEmail });
-        authBtnAction.innerText = t("logout");
-        checkBtn.disabled = false;
-        checkBtn.style.opacity = "1";
-        checkBtn.style.cursor = "pointer";
-      } else {
-        const count =
-          result.guestUsage && result.guestUsage.date === today
-            ? result.guestUsage.count
-            : 0;
-        const remaining = Math.max(0, LIMIT - count);
-
-        userInfo.innerText = t("guestUsage", { count: remaining });
-        authBtnAction.innerText = t("loginRegister");
-
-        if (remaining <= 0) {
-          checkBtn.disabled = true;
-          btnText.textContent = t("verdict.dailyLimitReached");
-          checkBtn.style.opacity = "0.6";
-          checkBtn.style.cursor = "not-allowed";
-        } else {
-          checkBtn.disabled = false;
-          btnText.textContent = t("checkFact");
-          checkBtn.style.opacity = "1";
-          checkBtn.style.cursor = "pointer";
-        }
-      }
-    });
-  }
-
+// ── Auth Button ───────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
   authBtnAction.addEventListener("click", () => {
     chrome.storage.local.get(["token"], (result) => {
       if (result.token) {

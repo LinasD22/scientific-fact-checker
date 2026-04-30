@@ -22,9 +22,6 @@ if (!window.factHighlights) {
   CSS.highlights.set("fact-neutral", window.factHighlights.neutral);
 }
 
-function injectPanel() {
-// ─────────────────────────────────────────────────────────────────────────────
-
 function injectPanel(initialMode, initialWidth) {
   let currentMode  = initialMode;
   let currentWidth = clampWidth(initialWidth);
@@ -262,41 +259,6 @@ function injectPanel(initialMode, initialWidth) {
 
     function onMouseMove(e) {
       currentWidth = clampWidth(window.innerWidth - e.clientX);
-  style.textContent = `
-    #factCheckerContainer {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      width: 360px;
-      max-height: 600px;
-      height: 200px;
-      z-index: 2147483647;
-      background: white;
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-      border: 1px solid #e2e8f0;
-      transition: height 0.3s ease-in-out;
-    }
-    #factCheckerIframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: block;
-    }
-	::highlight(fact-verified) {
-	background-color: rgba(72, 187, 120, 0.4);
-	}
-
-	::highlight(fact-false) {
-	background-color: rgba(245, 101, 101, 0.4);
-	}
-
-	::highlight(fact-neutral) {
-	background-color: rgba(255, 255, 0, 0.35);
-	}
-	`;
-  document.head.appendChild(style);
 
       // 1. Move the panel
       container.style.setProperty("width", currentWidth + "px", "important");
