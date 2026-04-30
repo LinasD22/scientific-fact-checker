@@ -129,7 +129,11 @@ chrome.storage.local.get("theme", (data) => {
 chrome.storage.local.get("lastClaim", (data) => {
   if (data.lastClaim) {
     claimInput.value = data.lastClaim;
+
+    // Clear the storage immediately so it doesn't persist to the next tab
     chrome.storage.local.remove("lastClaim");
+    
+    // UI Refresh to ensure the panel height matches the new text
     setTimeout(sendHeight, 50);
   }
 });
@@ -156,7 +160,7 @@ function updateUI() {
 			authBtnAction.innerText = "Login/Register";
 			if (remaining <= 0) {
 				checkBtn.disabled = true;
-				btnText.textContent = "Daily Limit Reached";
+				btnText.textContent = "Daily Limit Reached"; // Updates text immediately
 				checkBtn.style.opacity = "0.6";
 				checkBtn.style.cursor = "not-allowed";
 			} else {
@@ -172,7 +176,11 @@ function updateUI() {
 // Toggle logic
 themeToggle.addEventListener("click", () => {
   const isDark = document.body.classList.toggle("dark-mode");
+  
+  // Update button icon
   themeToggle.textContent = isDark ? "☀️" : "🌙";
+  
+  // Save preference
   chrome.storage.local.set({ theme: isDark ? "dark" : "light" });
 });
 
@@ -186,6 +194,9 @@ clearBtn.addEventListener("click", () => {
 
 // Manual Check Logic
 checkBtn.addEventListener("click", autoCheck);
+
+// ... existing code (theme logic, clearBtn, etc.) ...
+
 
 function autoCheck() {
   const claim = claimInput.value.trim();
@@ -291,8 +302,6 @@ function autoCheck() {
   );
 }
 
-// --- HELPER FUNCTIONS ---
-
 function getVerdictClass(verdict) {
     const vText = (verdict || "").toLowerCase();
     if (vText.includes("supported") || vText.includes("true") || vText.includes("verified") || vText.includes("accurate")) return "true";
@@ -335,43 +344,60 @@ function sendHeight() {
   window.parent.postMessage({ type: "RESIZE_PANEL", height: height }, "*");
 }
 
+// Call on load
 window.addEventListener("load", sendHeight);
 
 function updateScoreRing(score) {
-  const circle = document.getElementById("ringProgress");
-  const radius = 52;
+  const ring = document.getElementById("ringProgress");
+  if (!ring) return;
+
+  // Ensure score is a rounded integer
+  const roundedScore = Math.round(score || 0);
+
+  const radius = ring.r.baseVal.value;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (score / 100) * circumference;
-  circle.style.strokeDashoffset = offset;
 
-  if (score >= 70) {
-    circle.style.stroke = "var(--score-high)";
-  } else if (score >= 40) {
-    circle.style.stroke = "var(--score-mid)";
+  ring.style.strokeDasharray = `${circumference} ${circumference}`;
+  const offset = circumference - (roundedScore / 100) * circumference;
+  ring.style.strokeDashoffset = offset;
+
+  // Color logic
+  if (roundedScore >= 70) {
+    ring.style.stroke = "var(--score-high)";
+  } else if (roundedScore >= 40) {
+    ring.style.stroke = "var(--score-mid)";
   } else {
-    circle.style.stroke = "var(--score-low)";
+    ring.style.stroke = "var(--score-low)";
   }
-
-  animateScoreText(score);
+  
+  animateScoreText(roundedScore);
 }
 
 function animateScoreText(targetScore) {
   const scoreText = document.getElementById("scoreValue");
 
   if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
-    scoreText.textContent = "!";
+    scoreText.textContent = "0"; // Changed from "!" to "0" for cleaner look
     return;
   }
 
+  // Ensure target is an integer
+  const finalTarget = Math.round(targetScore);
   let current = 0;
+
   if (window.scoreInterval) clearInterval(window.scoreInterval);
 
   window.scoreInterval = setInterval(() => {
-    current += Math.ceil(targetScore / 20);
-    if (current >= targetScore) {
-      current = targetScore;
+    // Incrementing logic
+    const step = Math.ceil(finalTarget / 20) || 1;
+    current += step;
+
+    if (current >= finalTarget) {
+      current = finalTarget;
       clearInterval(window.scoreInterval);
     }
+
+    // Display as integer
     scoreText.textContent = current;
   }, 30);
 }
@@ -381,13 +407,17 @@ document.getElementById("closePanelBtn").addEventListener("click", () => {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
+
     authBtnAction.addEventListener('click', () => {
         chrome.storage.local.get(['token'], (result) => {
             if (result.token) {
+                // LOGOUT LOGIC
                 chrome.storage.local.remove(['token', 'userEmail'], () => {
                     updateUI();
+                    // todo: Call backend /logout endpoint here if blacklisting
                 });
             } else {
+                // LOGIN LOGIC
                 chrome.runtime.sendMessage({ type: "OPEN_AUTH" });
             }
         });

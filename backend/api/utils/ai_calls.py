@@ -11,19 +11,12 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 
 import requests
 from requests.auth import HTTPBasicAuth
 
-
-class FactCheckResult(Enum):
-    VERIFIED = "verified"
-    PARTIALLY_VERIFIED = "partially_verified"
-    FALSE = "false"
-    UNVERIFIABLE = "unverifiable"
-    CONFLICTING = "conflicting"
+from api.enums import FactCheckResult
 
 
 @dataclass
@@ -465,7 +458,7 @@ def extract_individual_facts(text: str) -> dict[str, Any]:
         text: The text to decompose into individual facts
 
     Returns:
-        Dictionary with "facts" list containing individual claims to fact-check
+        Dictionary with "facts" list containing dicts with "fact" and "exact_quote".
     """
     ai_client = AICallClient()
 
@@ -476,7 +469,9 @@ Rules:
 - Do NOT judge whether claims are true, false, or controversial
 - Do NOT skip claims because they seem like opinions or misinformation
 - Do NOT add commentary or warnings
-- Each extracted claim must be a complete standalone sentence
+- For each extracted claim, you must provide TWO fields:
+  1. "fact": A complete, standalone sentence representing the clean claim.
+  2. "exact_quote": The EXACT, verbatim substring from the original text that corresponds to this claim. Do not alter a single character, space, or punctuation mark for this field.
 - Respond ONLY with valid JSON, nothing else"""
 
     prompt = f"""Split the following text into individual claims. Extract ALL of them — do not skip any.
@@ -487,29 +482,60 @@ Text:
 Return ONLY this JSON format:
 {{
     "facts": [
-        "First claim here",
-        "Second claim here",
-        "Third claim here"
+        {{
+            "fact": "First standalone claim here",
+            "exact_quote": "Exact verbatim text from the original input"
+        }},
+        {{
+            "fact": "Second standalone claim here",
+            "exact_quote": "Exact verbatim text from the original input"
+        }}
     ]
 }}
 
 Rules:
 - Include every sentence/claim, even if it sounds like an opinion or is controversial
 - Maximum 10 claims
-- Each claim must be a complete sentence"""
+- "fact" must be a complete standalone sentence
+- "exact_quote" MUST be a direct copy-paste from the original text (this is critical for text highlighting algorithms)"""
 
     result = ai_client._call_ai_extract_facts(system_prompt, prompt)
 
     # Ensure we have a valid facts array
     if isinstance(result, dict) and "facts" in result:
-        facts = result.get("facts", [])
-        if isinstance(facts, list):
-            # Filter out empty strings
-            facts = [f.strip() for f in facts if isinstance(f, str) and f.strip()]
-            if facts:
-                return {"facts": facts}
+        raw_facts = result.get("facts", [])
+        if isinstance(raw_facts, list):
+            valid_facts = []
+            for f in raw_facts:
+                if isinstance(f, dict) and "fact" in f:
+                    # Keep exact_quote if it exists, otherwise fallback to the fact itself
+                    exact_quote = f.get("exact_quote", f["fact"])
+                    valid_facts.append({
+                        "fact": str(f["fact"]).strip(),
+                        "exact_quote": str(exact_quote).strip()
+                    })
+                elif isinstance(f, str) and f.strip():
+                    # Handle case where AI ignored instructions and returned a list of strings
+                    valid_facts.append({
+                        "fact": f.strip(),
+                        "exact_quote": f.strip()
+                    })
+            
+            if valid_facts:
+                return {"facts": valid_facts}
 
     # Fallback: split by newlines or periods if AI fails
     logging.warning(f"Failed to parse facts from AI response: {result}")
-    fallback_facts = [s.strip() for s in text.replace("\n", ".").split(".") if s.strip()]
-    return {"facts": fallback_facts if fallback_facts else [text]}
+    fallback_strings = [s.strip() for s in text.replace("\n", ".").split(".") if s.strip()]
+    
+    fallback_facts = []
+    for s in fallback_strings:
+        fallback_facts.append({
+            "fact": s,
+            "exact_quote": s
+        })
+        
+    if not fallback_facts:
+        fallback_facts = [{"fact": text, "exact_quote": text}]
+        
+    return {"facts": fallback_facts}

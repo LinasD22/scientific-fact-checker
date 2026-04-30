@@ -56,7 +56,6 @@ from sqlmodel import SQLModel
 from api.db import models 
 
 def create_db_and_tables():
-    # Generates the SQL logs
     SQLModel.metadata.create_all(engine)
 
 @app.on_event("startup")
@@ -66,6 +65,10 @@ def on_startup():
 # Include authentication routes
 from api.controllers import auth
 app.include_router(auth.router)
+
+
+from api.controllers import history
+app.include_router(history.router)
 
 if __name__ == "__main__":
     os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8000") #8080
