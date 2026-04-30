@@ -19,3 +19,5 @@ backend/.env
 /backend/qdrant_cache
 backend/api/utils/qdrant_cache
 /venv
+# Folder config file
+desktop.ini
