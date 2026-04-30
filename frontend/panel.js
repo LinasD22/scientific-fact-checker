@@ -59,6 +59,15 @@ function injectPanel(initialMode, initialWidth) {
   pushStyle.id = "factCheckerPagePush";
   document.head.appendChild(pushStyle);
 
+  const highlightStyle = document.createElement("style");
+  highlightStyle.id = "factCheckerHighlightStyles";
+  highlightStyle.textContent = `
+    ::highlight(fact-verified) { background-color: rgba(72, 187, 120, 0.4); }
+    ::highlight(fact-false)    { background-color: rgba(245, 101, 101, 0.4); }
+    ::highlight(fact-neutral)  { background-color: rgba(255, 255,   0, 0.35); }
+  `;
+  document.head.appendChild(highlightStyle);
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function clampWidth(w) { return Math.max(280, Math.min(780, w)); }
 
@@ -306,6 +315,7 @@ function injectPanel(initialMode, initialWidth) {
       handle.remove();
       panelStyle.remove();
       pushStyle.remove();
+      highlightStyle.remove();
     }
 
     // Only auto-resize height in float mode
