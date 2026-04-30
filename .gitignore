@@ -1,3 +1,10 @@
+.cursor/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Default ignored files
 /shelf/
 /workspace.xml
@@ -7,8 +14,6 @@
 /dataSources/
 /dataSources.local.xml
 .idea
-/__pycache__/
-*.pyc
 .env
 backend/.env
 /backend/qdrant_cache

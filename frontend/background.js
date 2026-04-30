@@ -185,14 +185,22 @@ const API_URL = "http://localhost:8000/api/fact-check/search";
 
     const data = await response.json();
 
+    const mappedFacts = (data.all_results || []).map(res => ({
+        claim: res.original_fact || "Unknown Claim",
+        verdict: res.final_verdict || "unverifiable",
+        explanation: res.summary || "",
+        score: typeof res.agreement_score === "number" ? res.agreement_score : 0,
+        sources: res.articles_used || []
+    }));
+
     return {
       verdict: data.final_verdict ?? "unverifiable",
       explanation: data.summary ?? "",
       score: typeof data.agreement_score === "number" ? data.agreement_score : 0,
       consensus: data.consensus ?? "N/A",
       articles_used: data.articles_used ?? [],
-	  individual_facts: data.individual_facts ?? data.facts ?? []
-	  //individual_results: data.individual_results ?? [] // papildomai
+      // Use the mapped array here
+      individual_facts: mappedFacts
     };
 }
 

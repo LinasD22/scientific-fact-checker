@@ -5,20 +5,33 @@ from pathlib import Path
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 
-# nuskaito app/..env
+# nuskaito app/.env
 sys.path.insert(0, str(Path(__file__).parent.parent))
-load_dotenv(Path(__file__).parent / ".env")  # nuskaito app/.env
+env_path = Path(__file__).parent / ".env"
+
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path, override=True)
+    print(f"application.py Success: Loaded .env from {env_path}")
+else:
+    print(f"application.py Error: Could not find .env at {env_path}")
+
 
 from fastapi import FastAPI
 from api.controllers.fact_check import router as fact_check_router
 
 # expose FastAPI application at module level so CLI can discover it
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)-8s %(name)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+
 app = FastAPI(
     title="Scientific Fact Checker API",
     description="AI-powered fact-checking against academic papers",
     version="1.0.0"
 )
-
 
 
 app.add_middleware(
@@ -43,7 +56,6 @@ from sqlmodel import SQLModel
 from api.db import models 
 
 def create_db_and_tables():
-    # Generates the SQL logs
     SQLModel.metadata.create_all(engine)
 
 @app.on_event("startup")
@@ -53,6 +65,10 @@ def on_startup():
 # Include authentication routes
 from api.controllers import auth
 app.include_router(auth.router)
+
+
+from api.controllers import history
+app.include_router(history.router)
 
 if __name__ == "__main__":
     os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8000") #8080

@@ -1,77 +1,65 @@
 services:
-  db:
-    image: mariadb:10.11
-    restart: always
-    environment:
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+  #For connecting to server db
+  cf-tunnel-db:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    network_mode: host
     env_file:
-      - ./database/.env
-    volumes:
-      - mariadb_data:/var/lib/mysql  # keeps data alive after container restarts
-    # add ports only if running locally for development
-    ports:
-      - "3306:3306"
-    healthcheck:
-      #for local development:
-      #test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
-      #for server deployment:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - .env
+    command: >
+      access tcp
+      --hostname db.healthfactchecker.site
+      --url localhost:3307
+      --header "CF-Access-Client-Id: ${CF_CLIENT_ID}"
+      --header "CF-Access-Client-Secret: ${CF_CLIENT_SECRET}"
 
-#  api:
+#   For local or server db hosting
+#   db:
+#     image: mariadb:10.11
+#     restart: always
+#     environment:
+#       MYSQL_DATABASE: ${DB_NAME}
+#       MYSQL_USER: ${DB_USER}
+#       MYSQL_PASSWORD: ${DB_PASSWORD}
+#       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+#     env_file:
+#       - ./database/.env
+#     volumes:
+#       - mariadb_data:/var/lib/mysql  # keeps data alive after container restarts
+#     # add ports only if running locally for development
+#     ports:
+#       - "3306:3306"
+#     healthcheck:
+#       #for local development:
+#       #test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+#       #for server deployment:
+#       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+#       interval: 5s
+#       timeout: 5s
+#       retries: 5
+
+#  For server hosting
+#  tunnel:
+#    env_file:
+#      - ./database/.env
+#    image: cloudflare/cloudflared
+#    restart: always
+#    command: tunnel run --token ${TUNNEL_TOKEN}
+
+#  web:
 #    build: .
 #    restart: always
 #    env_file:
-#      - ./backend/.env
 #      - ./database/.env
+#    working_dir: /app/database/app
+#    command: python manage.py runserver 0.0.0.0:8001
 #    ports:
-#      - "8000:8000"
+#      - "8001:8001"
 #    depends_on:
 #      db:
 #        condition: service_healthy
-#    command: uvicorn application:app --host 0.0.0.0 --port 8000
 
-  web:
-    build: .
-    restart: always
-    env_file:
-      - ./database/.env
-    working_dir: /app/database/app
-    command: python manage.py runserver 0.0.0.0:8001
-    ports:
-      - "8001:8001"
-    depends_on:
-      db:
-        condition: service_healthy
-
-
-  tunnel:
-    env_file:
-      - ./database/.env
-    image: cloudflare/cloudflared
-    restart: always
-    command: tunnel run --token ${TUNNEL_TOKEN}
-
+# docker-compose.local.yml
 
 volumes:
   mariadb_data: {}
-
-
-  # leave this commented only for local development, comment out for server deployment
-  #web:
-  #   build: .
-  #   env_file:
-  #     - .env
-  #   command: python manage.py runserver 0.0.0.0:8000
-  #   volumes:
-  #     - ./app:/app
-  #   ports:
-  #     - "8000:8000"
-  #   depends_on:
-  #     db:
-  #

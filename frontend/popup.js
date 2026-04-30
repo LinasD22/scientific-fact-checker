@@ -3,7 +3,8 @@ const clearBtn = document.getElementById("clearBtn");
 const btnText = document.getElementById("btnText");
 const claimInput = document.getElementById("claimInput");
 const resultCard = document.getElementById("resultCard");
-
+const authBtnAction = document.getElementById('authBtnAction');
+const userInfo = document.getElementById('userInfo');
 const themeToggle = document.getElementById("themeToggle");
 const languageToggle = document.getElementById("languageToggle");
 
@@ -274,7 +275,53 @@ chrome.storage.local.get("lastClaim", (data) => {
   }
 });
 
-// ── Clear Button ──────────────────────────────────────────────────────────────
+function updateUI() {
+	chrome.storage.local.get(['token', 'userEmail', 'guestUsage'], (result) => {
+		const today = new Date().toLocaleDateString();
+		const checkBtn = document.getElementById("checkBtn");
+		const btnText = document.getElementById("btnText");
+		const LIMIT = 3;
+		if (result.token) {
+			userInfo.innerText = "Logged in as " + result.userEmail;
+			authBtnAction.innerText = "Logout";
+			checkBtn.disabled = false;
+			checkBtn.style.opacity = "1";
+			checkBtn.style.cursor = "pointer";
+		} else {
+			const count = (result.guestUsage && result.guestUsage.date === today) 
+					? result.guestUsage.count 
+					: 0;
+			const remaining = Math.max(0, LIMIT - count);
+	
+			userInfo.innerText = `Guest: ${remaining} uses left today`;
+			authBtnAction.innerText = "Login/Register";
+			if (remaining <= 0) {
+				checkBtn.disabled = true;
+				btnText.textContent = "Daily Limit Reached"; // Updates text immediately
+				checkBtn.style.opacity = "0.6";
+				checkBtn.style.cursor = "not-allowed";
+			} else {
+				checkBtn.disabled = false;
+				btnText.textContent = "Check Fact";
+				checkBtn.style.opacity = "1";
+				checkBtn.style.cursor = "pointer";
+			}
+		}
+	});
+}
+
+// Toggle logic
+themeToggle.addEventListener("click", () => {
+  const isDark = document.body.classList.toggle("dark-mode");
+  
+  // Update button icon
+  themeToggle.textContent = isDark ? "☀️" : "🌙";
+  
+  // Save preference
+  chrome.storage.local.set({ theme: isDark ? "dark" : "light" });
+});
+
+// Clear Button Logic
 clearBtn.addEventListener("click", () => {
   claimInput.value = "";
   resultCard.classList.add("hidden");
@@ -283,6 +330,8 @@ clearBtn.addEventListener("click", () => {
 
 // ── Manual Check Logic ────────────────────────────────────────────────────────
 checkBtn.addEventListener("click", autoCheck);
+
+// ... existing code (theme logic, clearBtn, etc.) ...
 
 function autoCheck() {
   const claim = claimInput.value.trim();
@@ -299,74 +348,91 @@ function autoCheck() {
       checkBtn.disabled = false;
       btnText.textContent = t("checkFact");
 
-         if (response.verdict === "Limit Reached") {
-           updateUI();
-           resultCard.classList.remove("hidden");
-           const verdictEl = document.getElementById("finalVerdict");
-           verdictEl.textContent = t("verdict.limitReached");
-           verdictEl.setAttribute("data-i18n", "verdict.limitReached");
-           verdictEl.className = "verdict uncertain";
-           const explanationEl = document.getElementById("finalExplanation");
-           explanationEl.textContent = translateExplanation(response.explanation);
-           // Store response for re-translation when language changes
-           lastResponse = response;
-           return;
-         }
-
-      const verdictEl = document.getElementById("finalVerdict");
-      const verdictText = (response.verdict || "").toLowerCase();
-
-      verdictEl.textContent = translateVerdict(response.verdict || "unverifiable");
-      verdictEl.setAttribute("data-verdict-key", response.verdict || "unverifiable");
-      verdictEl.className = "verdict";
-
-      if (verdictText.includes("limit")) verdictEl.classList.add("uncertain");
-      else if (verdictText.includes("supported") || verdictText.includes("true"))
-        verdictEl.classList.add("true");
-      else if (verdictText.includes("refuted") || verdictText.includes("false"))
-        verdictEl.classList.add("false");
-      else verdictEl.classList.add("uncertain");
-
+      if (response.verdict === "Limit Reached") {
+        updateUI();
         resultCard.classList.remove("hidden");
+        const verdictEl = document.getElementById("finalVerdict");
+        verdictEl.textContent = t("verdict.limitReached");
+        verdictEl.setAttribute("data-i18n", "verdict.limitReached");
+        verdictEl.className = "verdict uncertain";
         const explanationEl = document.getElementById("finalExplanation");
         explanationEl.textContent = translateExplanation(response.explanation);
+        // Store response for re-translation when language changes
+        lastResponse = response;
+        return;
+      }
 
+      // --- CONDITIONAL LAYOUT LOGIC ---
+      const facts = response.individual_facts || [];
       const factsContainer = document.getElementById("individualFactsContainer");
       const factsList = document.getElementById("individualFactsList");
-      factsList.innerHTML = "";
+      const mainScoreSection = document.querySelector(".scoreRingContainer");
+      const mainVerdictSection = document.querySelector(".resultHeader");
+      const finalExplanation = document.getElementById("finalExplanation");
+      const evidenceSection = document.querySelector(".evidence-section");
 
-      if (response.individual_facts && response.individual_facts.length > 0) {
+      factsList.innerHTML = ""; // Clear old results
+
+      if (facts.length > 1) {
+        // CASE: MULTIPLE FACTS - Hide Big Ring, Show List
+        mainScoreSection.style.display = "none";
+        mainVerdictSection.style.display = "none";
+        finalExplanation.style.display = "none";
+        if (evidenceSection) evidenceSection.style.display = "none";
         factsContainer.style.display = "block";
-        response.individual_facts.forEach((fact) => {
+
+        facts.forEach(fact => {
           const factDiv = document.createElement("div");
           factDiv.className = "fact-item";
 
-          let vClass = "uncertain";
-          const vText = (fact.verdict || fact.status || "").toLowerCase();
-          if (vText.includes("supported") || vText.includes("true"))
-            vClass = "true";
-          else if (vText.includes("refuted") || vText.includes("false"))
-            vClass = "false";
+          const vClass = getVerdictClass(fact.verdict || fact.status || "");
+          const scorePercent = Math.round((fact.score || 0) * 100);
+          const sourcesHtml = generateSourcesHtml(fact.sources || []);
 
-           factDiv.innerHTML = `
-                 <div class="fact-claim">"${fact.claim}"</div>
-                 <div style="margin-bottom: 6px;">
-                     <span class="fact-verdict ${vClass}" data-verdict-key="${fact.verdict || "uncertain"}">${translateVerdict(fact.verdict || "uncertain")}</span>
-                 </div>
-                 <div class="fact-explanation">${translateExplanation(fact.explanation || fact.summary || "")}</div>
-             `;
+          // Get color based on score for the badge
+          let scoreColorClass = "score-mid";
+          if (scorePercent >= 70) scoreColorClass = "score-high";
+          else if (scorePercent < 40) scoreColorClass = "score-low";
+
+          factDiv.innerHTML = `
+            <div class="fact-top-row">
+              <div class="badge-stack">
+                <span class="badge-label">${t("confidence")}</span>
+                <div class="score-badge ${scoreColorClass}">
+                  ${scorePercent}%
+                </div>
+              </div>
+              <div class="fact-claim">"${fact.claim}"</div>
+            </div>
+            <div style="margin-bottom: 8px;">
+              <span class="fact-verdict ${vClass}" data-verdict-key="${fact.verdict || "uncertain"}">${translateVerdict(fact.verdict || "uncertain")}</span>
+            </div>
+            <div class="fact-explanation">${translateExplanation(fact.explanation || fact.summary || "")}</div>
+            <div class="fact-sources-list">${sourcesHtml}</div>
+          `;
           factsList.appendChild(factDiv);
         });
       } else {
+        // CASE: SINGLE FACT - Show Big Ring, Hide List
+        mainScoreSection.style.display = "block";
+        mainVerdictSection.style.display = "block";
+        finalExplanation.style.display = "block";
+        if (evidenceSection) evidenceSection.style.display = "block";
         factsContainer.style.display = "none";
+
+        // Update the big ring and text
+        const verdictEl = document.getElementById("finalVerdict");
+        const vClass = getVerdictClass(response.verdict || "unverifiable");
+
+        verdictEl.textContent = translateVerdict(response.verdict || "unverifiable");
+        verdictEl.setAttribute("data-verdict-key", response.verdict || "unverifiable");
+        verdictEl.className = `verdict ${vClass}`;
+        finalExplanation.textContent = translateExplanation(response.explanation || "");
+
+        updateScoreRing((response.score || 0) * 100);
       }
 
-      updateScoreRing((response.score || 0) * 100);
-
-      const articlesList = document.getElementById("articlesList");
-      const sourceCount = document.getElementById("sourceCount");
-      articlesList.innerHTML = "";
-
+      // Populate Evidence List (for individual results)
       const evidenceList = document.getElementById("evidenceList");
       if (evidenceList) {
         evidenceList.innerHTML = "";
@@ -374,26 +440,22 @@ function autoCheck() {
         if (response.individual_results && response.individual_results.length > 0) {
           response.individual_results.forEach((r) => {
             const verdict = r.result || "unverifiable";
-            const verdictClass = verdict.includes("verified")
-              ? "true"
-              : verdict === "false"
-              ? "false"
-              : "uncertain";
+            const verdictClass = getVerdictClass(verdict);
 
             const item = document.createElement("div");
             item.className = "evidence-item";
             item.innerHTML = `
-                    <div class="evidence-header">
-                        <span class="evidence-title">${r.source_title || t("unknownSource")}</span>
-                    </div>
-                    <div class="evidence-verdict-wrapper">
-                        <span class="verdict ${verdictClass}" data-verdict-key="${verdict}" style="font-size:11px; padding:2px 6px; display: inline-block;">${translateVerdict(verdict)}</span>
-                    </div>
-                    <div class="evidence-snippet">"${r.source_text || ""}"</div>
-                    <div class="evidence-explanation">${r.explanation || ""}</div>
-                    ${r.supporting_evidence?.length ? `<div class="evidence-tag support">✓ ${r.supporting_evidence[0]}</div>` : ""}
-                    ${r.contradicting_evidence?.length ? `<div class="evidence-tag contra">✗ ${r.contradicting_evidence[0]}</div>` : ""}
-                `;
+              <div class="evidence-header">
+                <span class="evidence-title">${r.source_title || t("unknownSource")}</span>
+              </div>
+              <div class="evidence-verdict-wrapper">
+                <span class="verdict ${verdictClass}" data-verdict-key="${verdict}" style="font-size:11px; padding:2px 6px; display: inline-block;">${translateVerdict(verdict)}</span>
+              </div>
+              <div class="evidence-snippet">"${r.source_text || ""}"</div>
+              <div class="evidence-explanation">${r.explanation || ""}</div>
+              ${r.supporting_evidence?.length ? `<div class="evidence-tag support">✓ ${r.supporting_evidence[0]}</div>` : ""}
+              ${r.contradicting_evidence?.length ? `<div class="evidence-tag contra">✗ ${r.contradicting_evidence[0]}</div>` : ""}
+            `;
             evidenceList.appendChild(item);
           });
         } else {
@@ -401,24 +463,10 @@ function autoCheck() {
         }
       }
 
-      if (response.articles_used && response.articles_used.length > 0) {
-        sourceCount.textContent = response.articles_used.length;
-        response.articles_used.forEach((article) => {
-          const item = document.createElement("div");
-          item.className = "article-item";
-          item.innerHTML = `
-                <a href="${article.url}" target="_blank" class="article-title">${article.title}</a>
-                <div class="article-meta">
-                    ${article.source} • ${article.published_date || t("dateUnknown")}
-                </div>
-            `;
-          articlesList.appendChild(item);
-        });
-      } else {
-        sourceCount.textContent = "0";
-        articlesList.innerHTML = "<p class='article-meta'>" + t("noArticles") + "</p>";
-      }
+      // Populate Global Articles (Bottom Section)
+      updateArticlesList(response.articles_used || []);
 
+      resultCard.classList.remove("hidden");
       document.getElementById("rawResponse").textContent = JSON.stringify(
         response,
         null,
@@ -428,6 +476,48 @@ function autoCheck() {
       setTimeout(sendHeight, 100);
     }
   );
+}
+
+// --- HELPER FUNCTIONS ---
+
+function getVerdictClass(verdict) {
+  const vText = (verdict || "").toLowerCase();
+  if (vText.includes("supported") || vText.includes("true") || vText.includes("verified") || vText.includes("accurate"))
+    return "true";
+  if (vText.includes("refuted") || vText.includes("false") || vText.includes("inaccurate") || vText.includes("misleading"))
+    return "false";
+  return "uncertain";
+}
+
+function generateSourcesHtml(sources) {
+  if (!sources || sources.length === 0)
+    return `<span class="no-sources">${t("noSourcesFound")}</span>`;
+  return `
+    <div style="font-size: 10px; font-weight: 700; margin-bottom: 4px; color: var(--text-muted);">${t("sources")}</div>
+    ${sources.map(s => `<a href="${s.url}" target="_blank" class="mini-source">📄 ${s.title}</a>`).join('')}
+  `;
+}
+
+function updateArticlesList(articles) {
+  const articlesList = document.getElementById("articlesList");
+  const sourceCount = document.getElementById("sourceCount");
+  articlesList.innerHTML = "";
+
+  if (articles && articles.length > 0) {
+    sourceCount.textContent = articles.length;
+    articles.forEach(article => {
+      const item = document.createElement("div");
+      item.className = "article-item";
+      item.innerHTML = `
+        <a href="${article.url}" target="_blank" class="article-title">${article.title}</a>
+        <div class="article-meta">${article.source} • ${article.published_date || t("dateUnknown")}</div>
+      `;
+      articlesList.appendChild(item);
+    });
+  } else {
+    sourceCount.textContent = "0";
+    articlesList.innerHTML = "<p class='article-meta'>" + t("noArticles") + "</p>";
+  }
 }
 
 // ── Resize & Score ────────────────────────────────────────────────────────────

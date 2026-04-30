@@ -86,10 +86,13 @@ document.getElementById("toggleLink").addEventListener("click", () => {
   updateAuthTexts();
 });
 
-// ── Auth submit ──────────────────────────────────────────────────────────────
-document.getElementById("authBtn").addEventListener("click", async () => {
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
+document.getElementById('authBtn').addEventListener('click', async () => {
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    //local
+    const url = isLogin ? "http://localhost:8000/auth/login" : "http://localhost:8000/auth/register";
+    //server
+    //const url = isLogin ? "http://api.healthfactchecker.site/auth/login" : "http://api.healthfactchecker.site/auth/register";
 
   const url = isLogin
   ? "http://localhost:8000/auth/login"
