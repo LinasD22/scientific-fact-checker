@@ -593,4 +593,89 @@ def translate_to_english(text: str) -> dict[str, Any]:
             "error": str(e),
         }
 
+
+def translate_from_english(text: str, target_language: str) -> dict[str, Any]:
+    """
+    Translate text from English to a target language using Mistral.
+
+    Args:
+        text: The English text to translate
+        target_language: Target language name (e.g., "lithuanian", "spanish", "french")
+
+    Returns:
+        Dictionary with:
+        - "original": original text
+        - "translated": translated text (or original if translation fails)
+        - "was_translated": bool indicating if translation occurred
+        - "target_language": the requested target language
+        - "error": error message if translation failed
+    """
+    from mistralai import Mistral
+
+    client = Mistral(api_key=os.getenv("MISTRAL_API_KEY", ""))
+    model = os.getenv("MISTRAL_MODEL", "mistral-small-2506")
+
+    system_prompt = f"""You are a translation assistant. Translate the provided text from English to {target_language.capitalize()}.
+
+You must respond with ONLY a valid JSON object, no other text."""
+
+    user_prompt = f"""Translate the following text from English to {target_language.capitalize()}:
+
+Text: "{text}"
+
+Respond with ONLY this JSON structure:
+{{
+    "translated_text": "Translation in {target_language.capitalize()}",
+    "source_language": "english",
+    "target_language": "{target_language.capitalize()}",
+    "notes": "any notes about translation quality or ambiguities (optional)"
+}}"""
+
+    try:
+        response = client.chat.complete(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            max_tokens=8000,
+        )
+
+        content = response.choices[0].message.content
+        if isinstance(content, list):
+            content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
+
+        content = content.strip()
+
+        # Strip markdown code blocks if present
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+
+        result = json.loads(content)
+        translated_text = result.get("translated_text", text)
+
+        logging.info(f"Translation from English to {target_language}: success")
+
+        return {
+            "original": text,
+            "translated": translated_text,
+            "was_translated": True,
+            "target_language": target_language,
+            "source_language": result.get("source_language", "english"),
+        }
+
+    except Exception as e:
+        logging.error(f"Translation from English to {target_language} failed: {e}. Returning original text.")
+        return {
+            "original": text,
+            "translated": text,
+            "was_translated": False,
+            "target_language": target_language,
+            "error": str(e),
+        }
+
     

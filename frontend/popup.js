@@ -8,6 +8,8 @@ const userInfo = document.getElementById('userInfo');
 const themeToggle = document.getElementById("themeToggle");
 const languageToggle = document.getElementById("languageToggle");
 
+let lastResponse = null; // Store the latest API response for language switching
+
 // ── Translations ──────────────────────────────────────────────────────────────
 const translations = {
   en: {
@@ -77,7 +79,7 @@ const translations = {
       limitReached: "Limitas pasiektas",
       dailyLimitReached: "Dienos limitas pasiektas",
     },
-    guestUsage: "Svečias: liko {{count}} naudojimų",
+    guestUsage: "Svečias: liko {{count}} užklausos šiandien",
     loggedInAs: "Prisijungęs kaip {{email}}",
     logout: "Atsijungti",
     loginRegister: "Prisijungti/Registruotis",
@@ -170,6 +172,15 @@ function translateVerdict(verdict) {
    return map[currentLang][key] || verdict.toUpperCase();
  }
 
+// Returns the appropriate language version of an explanation
+function getLocalizedExplanation(obj) {
+    if (!obj) return "";
+    if (currentLang === "lt") {
+        return obj.explanation_lt || obj.explanation || "";
+    }
+    return obj.explanation || "";
+}
+
  function translateExplanation(text) {
    // If not Lithuanian, return original text
    if (currentLang !== "lt") {
@@ -244,11 +255,25 @@ languageToggle.addEventListener("click", () => {
     chrome.storage.local.set({ language: currentLang });
     applyTranslations();
     updateLanguageButtonText();
+    updateUI(); // Update dynamic UI (guest count, buttons)
     // Retranslate explanations if we have a stored response
     if (lastResponse) {
         retranslateExplanations();
     }
-    // Update UI is called via DOMContentLoaded listener
+});
+
+// Listen for language changes from other parts of the extension (e.g., background.js)
+chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (changes.language) {
+        currentLang = changes.language.newValue;
+        applyTranslations();
+        updateLanguageButtonText();
+        updateUI(); // Update dynamic UI (guest count, buttons)
+        // Retranslate explanations if we have a stored response
+        if (lastResponse) {
+            retranslateExplanations();
+        }
+    }
 });
 
 // Listen for language changes from other parts of the extension (e.g., background.js)
@@ -282,27 +307,28 @@ function updateUI() {
 		const btnText = document.getElementById("btnText");
 		const LIMIT = 3;
 		if (result.token) {
-			userInfo.innerText = "Logged in as " + result.userEmail;
-			authBtnAction.innerText = "Logout";
+			userInfo.innerText = t("loggedInAs", { email: result.userEmail });
+			authBtnAction.innerText = t("logout");
 			checkBtn.disabled = false;
 			checkBtn.style.opacity = "1";
 			checkBtn.style.cursor = "pointer";
 		} else {
-			const count = (result.guestUsage && result.guestUsage.date === today) 
-					? result.guestUsage.count 
+			const count =
+				result.guestUsage && result.guestUsage.date === today
+					? result.guestUsage.count
 					: 0;
 			const remaining = Math.max(0, LIMIT - count);
-	
-			userInfo.innerText = `Guest: ${remaining} uses left today`;
-			authBtnAction.innerText = "Login/Register";
+
+			userInfo.innerText = t("guestUsage", { count: remaining });
+			authBtnAction.innerText = t("loginRegister");
 			if (remaining <= 0) {
 				checkBtn.disabled = true;
-				btnText.textContent = "Daily Limit Reached"; // Updates text immediately
+				btnText.textContent = t("verdict.dailyLimitReached");
 				checkBtn.style.opacity = "0.6";
 				checkBtn.style.cursor = "not-allowed";
 			} else {
 				checkBtn.disabled = false;
-				btnText.textContent = "Check Fact";
+				btnText.textContent = t("checkFact");
 				checkBtn.style.opacity = "1";
 				checkBtn.style.cursor = "pointer";
 			}
@@ -407,7 +433,7 @@ function autoCheck() {
             <div style="margin-bottom: 8px;">
               <span class="fact-verdict ${vClass}" data-verdict-key="${fact.verdict || "uncertain"}">${translateVerdict(fact.verdict || "uncertain")}</span>
             </div>
-            <div class="fact-explanation">${translateExplanation(fact.explanation || fact.summary || "")}</div>
+            <div class="fact-explanation">${getLocalizedExplanation(fact)}</div>
             <div class="fact-sources-list">${sourcesHtml}</div>
           `;
           factsList.appendChild(factDiv);
@@ -427,7 +453,7 @@ function autoCheck() {
         verdictEl.textContent = translateVerdict(response.verdict || "unverifiable");
         verdictEl.setAttribute("data-verdict-key", response.verdict || "unverifiable");
         verdictEl.className = `verdict ${vClass}`;
-        finalExplanation.textContent = translateExplanation(response.explanation || "");
+        finalExplanation.textContent = getLocalizedExplanation(response);
 
         updateScoreRing((response.score || 0) * 100);
       }
@@ -452,7 +478,7 @@ function autoCheck() {
                 <span class="verdict ${verdictClass}" data-verdict-key="${verdict}" style="font-size:11px; padding:2px 6px; display: inline-block;">${translateVerdict(verdict)}</span>
               </div>
               <div class="evidence-snippet">"${r.source_text || ""}"</div>
-              <div class="evidence-explanation">${r.explanation || ""}</div>
+               <div class="evidence-explanation">${currentLang === 'lt' ? (r.explanation_lt || r.explanation || "") : (r.explanation || "")}</div>
               ${r.supporting_evidence?.length ? `<div class="evidence-tag support">✓ ${r.supporting_evidence[0]}</div>` : ""}
               ${r.contradicting_evidence?.length ? `<div class="evidence-tag contra">✗ ${r.contradicting_evidence[0]}</div>` : ""}
             `;
@@ -473,9 +499,12 @@ function autoCheck() {
         2
       );
 
-      setTimeout(sendHeight, 100);
-    }
-  );
+       setTimeout(sendHeight, 100);
+       
+       // Store response for language re-translation
+       lastResponse = response;
+     }
+   );
 }
 
 // --- HELPER FUNCTIONS ---
@@ -568,7 +597,7 @@ function retranslateExplanations() {
     // Retranslate main explanation
     const explanationEl = document.getElementById("finalExplanation");
     if (explanationEl) {
-        explanationEl.textContent = translateExplanation(lastResponse.explanation);
+        explanationEl.textContent = getLocalizedExplanation(lastResponse);
     }
     
     // Retranslate individual fact explanations
@@ -578,7 +607,7 @@ function retranslateExplanations() {
         for (let i = 0; i < factItems.length && i < lastResponse.individual_facts.length; i++) {
             const factExplanationEl = factItems[i].querySelector(".fact-explanation");
             if (factExplanationEl) {
-                factExplanationEl.textContent = translateExplanation(lastResponse.individual_facts[i].explanation || lastResponse.individual_facts[i].summary || "");
+                factExplanationEl.textContent = getLocalizedExplanation(lastResponse.individual_facts[i]);
             }
         }
     }
@@ -590,7 +619,7 @@ function retranslateExplanations() {
         for (let i = 0; i < evidenceItems.length && i < lastResponse.individual_results.length; i++) {
             const evidenceExplanationEl = evidenceItems[i].querySelector(".evidence-explanation");
             if (evidenceExplanationEl) {
-                evidenceExplanationEl.textContent = translateExplanation(lastResponse.individual_results[i].explanation || "");
+                evidenceExplanationEl.textContent = getLocalizedExplanation(lastResponse.individual_results[i]);
             }
         }
     }

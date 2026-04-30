@@ -3,8 +3,9 @@ API endpoints for the fact checker plugin.
 """
 
 import asyncio
+import logging
 from typing import Annotated
-from api.utils.ai_calls import extract_individual_facts, translate_to_english
+from api.utils.ai_calls import extract_individual_facts, translate_to_english, translate_from_english
 from fastapi import Body, APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 from datetime import date, datetime, timezone
@@ -152,6 +153,41 @@ async def fact_check_with_search(
                 )
                 print(f"✓ Fact {fact_idx + 1}/{len(facts_to_check)} completed: {result.final_verdict}")
                 
+                # Build individual_results with Lithuanian explanations
+                individual_results = result.individual_results
+                summary_lithuanian = None
+                
+                # Always translate summary to Lithuanian
+                if result.summary:
+                    try:
+                        summary_translation = await loop.run_in_executor(
+                            None,
+                            lambda txt=result.summary: translate_from_english(txt, "lithuanian")
+                        )
+                        summary_lithuanian = summary_translation.get("translated")
+                    except Exception as e:
+                        logging.warning(f"Failed to translate summary to Lithuanian: {e}")
+                
+                # Translate explanations in individual_results to Lithuanian
+                translated_individuals = []
+                for ind_res in individual_results:
+                    ind_copy = ind_res.copy()
+                    explanation = ind_res.get("explanation", "")
+                    if explanation:
+                        try:
+                            translation = await loop.run_in_executor(
+                                None,
+                                lambda txt=explanation: translate_from_english(txt, "lithuanian")
+                            )
+                            ind_copy["explanation_lithuanian"] = translation.get("translated")
+                        except Exception as e:
+                            logging.warning(f"Failed to translate explanation to Lithuanian: {e}")
+                            ind_copy["explanation_lithuanian"] = None
+                    else:
+                        ind_copy["explanation_lithuanian"] = None
+                    translated_individuals.append(ind_copy)
+                individual_results = translated_individuals
+                
                 return {
                     "fact_index": fact_idx,
                     "original_fact": original_fact_info["original"],
@@ -161,8 +197,9 @@ async def fact_check_with_search(
                     "consensus": result.consensus,
                     "final_verdict": result.final_verdict,
                     "summary": result.summary,
+                    "summary_lithuanian": summary_lithuanian,
                     "agreement_score": result.agreement_score,
-                    "individual_results": result.individual_results,
+                    "individual_results": individual_results,
                     "articles_used": [
                         {
                             "title": article.title,
@@ -188,7 +225,7 @@ async def fact_check_with_search(
         
         # Run all fact checks in parallel
         all_results = await asyncio.gather(
-            *[check_fact_async(fact_idx, facts_to_check[fact_idx], original_facts[fact_idx]) 
+            *[check_fact_async(fact_idx, facts_to_check[fact_idx], original_facts[fact_idx])
               for fact_idx in range(len(facts_to_check))]
         )
         
@@ -210,6 +247,7 @@ async def fact_check_with_search(
             "consensus": first_result.get("consensus"),
             "final_verdict": first_result.get("final_verdict"),
             "summary": first_result.get("summary"),
+            "summary_lithuanian": first_result.get("summary_lithuanian"),
             "agreement_score": first_result.get("agreement_score"),
             "individual_results": first_result.get("individual_results", []),
             "articles_used": first_result.get("articles_used", []),

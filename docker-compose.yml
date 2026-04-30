@@ -13,30 +13,30 @@ services:
       --header "CF-Access-Client-Id: ${CF_CLIENT_ID}"
       --header "CF-Access-Client-Secret: ${CF_CLIENT_SECRET}"
 
-#   For local or server db hosting
-#   db:
-#     image: mariadb:10.11
-#     restart: always
-#     environment:
-#       MYSQL_DATABASE: ${DB_NAME}
-#       MYSQL_USER: ${DB_USER}
-#       MYSQL_PASSWORD: ${DB_PASSWORD}
-#       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-#     env_file:
-#       - ./database/.env
-#     volumes:
-#       - mariadb_data:/var/lib/mysql  # keeps data alive after container restarts
-#     # add ports only if running locally for development
-#     ports:
-#       - "3306:3306"
-#     healthcheck:
-#       #for local development:
-#       #test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
-#       #for server deployment:
-#       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-#       interval: 5s
-#       timeout: 5s
-#       retries: 5
+  #For local or server db hosting
+  db:
+    image: mariadb:10.11
+    restart: always
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    env_file:
+      - ./database/.env
+    volumes:
+      - mariadb_data:/var/lib/mysql  # keeps data alive after container restarts
+    # add ports only if running locally for development
+    ports:
+      - "3306:3306"
+    healthcheck:
+      #for local development:
+      #test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      #for server deployment:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 #  For server hosting
 #  tunnel:

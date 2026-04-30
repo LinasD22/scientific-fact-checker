@@ -183,25 +183,37 @@ const API_URL = "http://localhost:8000/api/fact-check/search";
         throw new Error(`Server responded with ${response.status}`);
     }
 
-    const data = await response.json();
+     const data = await response.json();
 
-    const mappedFacts = (data.all_results || []).map(res => ({
-        claim: res.original_fact || "Unknown Claim",
-        verdict: res.final_verdict || "unverifiable",
-        explanation: res.summary || "",
-        score: typeof res.agreement_score === "number" ? res.agreement_score : 0,
-        sources: res.articles_used || []
-    }));
+     // Map facts with Lithuanian explanation support
+     const explanation_lt = data.summary_lithuanian || "";
 
-    return {
-      verdict: data.final_verdict ?? "unverifiable",
-      explanation: data.summary ?? "",
-      score: typeof data.agreement_score === "number" ? data.agreement_score : 0,
-      consensus: data.consensus ?? "N/A",
-      articles_used: data.articles_used ?? [],
-      // Use the mapped array here
-      individual_facts: mappedFacts
-    };
+     const mappedFacts = (data.all_results || []).map(res => ({
+         claim: res.original_fact || "Unknown Claim",
+         verdict: res.final_verdict || "unverifiable",
+         explanation: res.summary || "",
+         explanation_lt: res.summary_lithuanian || "",
+         score: typeof res.agreement_score === "number" ? res.agreement_score : 0,
+         sources: res.articles_used || []
+     }));
+
+     // Include individual_results for evidence panel
+     const individualResults = (data.individual_results || []).map(item => ({
+         ...item,
+         // Ensure we have Lithuanian version of explanation if available
+         explanation_lt: item.explanation_lithuanian || ""
+     }));
+
+     return {
+         verdict: data.final_verdict ?? "unverifiable",
+         explanation: data.summary ?? "",
+         explanation_lt: explanation_lt,
+         score: typeof data.agreement_score === "number" ? data.agreement_score : 0,
+         consensus: data.consensus ?? "N/A",
+         articles_used: data.articles_used ?? [],
+         individual_facts: mappedFacts,
+         individual_results: individualResults
+     };
 }
 
 // Simplified action listener
