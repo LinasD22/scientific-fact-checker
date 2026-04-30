@@ -333,6 +333,7 @@ checkBtn.addEventListener("click", autoCheck);
 
 // ... existing code (theme logic, clearBtn, etc.) ...
 
+
 function autoCheck() {
   const claim = claimInput.value.trim();
   if (!claim) return;
@@ -523,7 +524,6 @@ function updateArticlesList(articles) {
   }
 }
 
-// ── Resize & Score ────────────────────────────────────────────────────────────
 function sendHeight() {
   const height = document.body.scrollHeight;
   window.parent.postMessage({ type: "RESIZE_PANEL", height: height }, "*");
@@ -532,17 +532,98 @@ function sendHeight() {
 window.addEventListener("load", sendHeight);
 
 function updateScoreRing(score) {
-  const circle = document.getElementById("ringProgress");
-  const radius = 52;
+  const ring = document.getElementById("ringProgress");
+  if (!ring) return;
+
+  // Ensure score is a rounded integer
+  const roundedScore = Math.round(score || 0);
+  
+  const radius = ring.r.baseVal.value;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (score / 100) * circumference;
-  circle.style.strokeDashoffset = offset;
 
-  if (score >= 70) circle.style.stroke = "var(--score-high)";
-  else if (score >= 40) circle.style.stroke = "var(--score-mid)";
-  else circle.style.stroke = "var(--score-low)";
+  ring.style.strokeDasharray = `${circumference} ${circumference}`;
+  const offset = circumference - (roundedScore / 100) * circumference;
+  ring.style.strokeDashoffset = offset;
 
-  animateScoreText(score);
+  // Color logic
+  if (roundedScore >= 70) {
+    ring.style.stroke = "var(--score-high)";
+  } else if (roundedScore >= 40) {
+    ring.style.stroke = "var(--score-mid)";
+  } else {
+    ring.style.stroke = "var(--score-low)";
+  }
+  
+  animateScoreText(roundedScore);
+}
+
+function animateScoreText(targetScore) {
+  const scoreText = document.getElementById("scoreValue");
+  
+  if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
+    scoreText.textContent = "0"; // Changed from "!" to "0" for cleaner look
+    return;
+  }
+
+  // Ensure target is an integer
+  const finalTarget = Math.round(targetScore);
+  let current = 0;
+
+  if (window.scoreInterval) clearInterval(window.scoreInterval);
+
+  window.scoreInterval = setInterval(() => {
+    // Incrementing logic
+    const step = Math.ceil(finalTarget / 20) || 1;
+    current += step;
+    
+    if (current >= finalTarget) {
+      current = finalTarget;
+      clearInterval(window.scoreInterval);
+    }
+    
+    // Display as integer
+    scoreText.textContent = current;
+  }, 30);
+}
+
+function retranslateExplanations() {
+    if (!lastResponse) return;
+    
+    // Retranslate main explanation
+    const explanationEl = document.getElementById("finalExplanation");
+    if (explanationEl) {
+        explanationEl.textContent = getLocalizedExplanation(lastResponse);
+    }
+    
+    // Retranslate individual fact explanations
+    const factsList = document.getElementById("individualFactsList");
+    if (factsList && lastResponse.individual_facts) {
+        const factItems = factsList.getElementsByClassName("fact-item");
+        for (let i = 0; i < factItems.length && i < lastResponse.individual_facts.length; i++) {
+            const factExplanationEl = factItems[i].querySelector(".fact-explanation");
+            if (factExplanationEl) {
+                factExplanationEl.textContent = getLocalizedExplanation(lastResponse.individual_facts[i]);
+            }
+        }
+    }
+    
+    // Retranslate evidence explanations
+    const evidenceList = document.getElementById("evidenceList");
+    if (evidenceList && lastResponse.individual_results) {
+        const evidenceItems = evidenceList.getElementsByClassName("evidence-item");
+        for (let i = 0; i < evidenceItems.length && i < lastResponse.individual_results.length; i++) {
+            const evidenceExplanationEl = evidenceItems[i].querySelector(".evidence-explanation");
+            if (evidenceExplanationEl) {
+                evidenceExplanationEl.textContent = getLocalizedExplanation(lastResponse.individual_results[i]);
+            }
+        }
+    }
+}
+
+function updateLanguageButtonText() {
+    const languageToggle = document.getElementById("languageToggle");
+    // Show the opposite language: if current is EN, show LT to switch to LT; if current is LT, show EN to switch to EN
+    languageToggle.textContent = currentLang === "en" ? "LT" : "EN";
 }
 
 function animateScoreText(targetScore) {

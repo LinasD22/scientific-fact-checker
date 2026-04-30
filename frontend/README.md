@@ -3,6 +3,4 @@
 - manifest.json - extension configuration
 - background.js - the logic
 - popup.html - what the user sees
-- popup.js - communication between html and logic
-
-currently barebones, modify the function "checkFact" in "background.js" to make it work
+- popup.js - communication between html and logics
