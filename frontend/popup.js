@@ -8,6 +8,114 @@ const userInfo = document.getElementById('userInfo');
 const themeToggle = document.getElementById("themeToggle");
 const languageToggle = document.getElementById("languageToggle");
 
+// ── OCR elements ──────────────────────────────────────────────────────────────
+const ocrDropZone   = document.getElementById("ocrDropZone");
+const ocrFileInput  = document.getElementById("ocrFileInput");
+const ocrBrowseBtn  = document.getElementById("ocrBrowseBtn");
+const ocrDropLabel  = document.getElementById("ocrDropLabel");
+const ocrFileName   = document.getElementById("ocrFileName");
+const ocrSpinner    = document.getElementById("ocrSpinner");
+const ocrError      = document.getElementById("ocrError");
+
+const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
+// const OCR_API_URL = //"http://localhost:8000/api/fact-check/ocr"; // local dev
+
+// ── OCR helpers ───────────────────────────────────────────────────────────────
+function ocrShowState(state, message = "") {
+  ocrDropLabel.style.display = "none";
+  ocrFileName.style.display  = "none";
+  ocrSpinner.style.display   = "none";
+  ocrError.style.display     = "none";
+
+  if (state === "idle") {
+    ocrDropLabel.style.display = "inline";
+  } else if (state === "file") {
+    ocrFileName.textContent    = "📄 " + message;
+    ocrFileName.style.display  = "inline";
+  } else if (state === "loading") {
+    ocrSpinner.style.display   = "inline";
+  } else if (state === "error") {
+    ocrError.textContent       = "⚠️ " + message;
+    ocrError.style.display     = "inline";
+  }
+}
+
+async function runOCR(file) {
+  // Validate type
+  if (!["image/png", "image/jpeg"].includes(file.type)) {
+    ocrShowState("error", "Only PNG or JPEG images are supported.");
+    return;
+  }
+
+  ocrShowState("file", file.name);
+  ocrDropZone.classList.add("ocr-loading");
+  ocrSpinner.style.display = "inline";
+  ocrFileName.style.display = "none";
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(OCR_API_URL, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `Server error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = (data.text || "").trim();
+
+    if (!text) {
+      ocrShowState("error", "No text found in image.");
+    } else {
+      claimInput.value = text;
+      ocrShowState("file", file.name);
+      sendHeight();
+    }
+  } catch (err) {
+    ocrShowState("error", err.message || "OCR failed. Please try again.");
+  } finally {
+    ocrDropZone.classList.remove("ocr-loading");
+  }
+}
+
+// Click-to-browse
+ocrBrowseBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  ocrFileInput.click();
+});
+
+ocrDropZone.addEventListener("click", () => ocrFileInput.click());
+
+ocrFileInput.addEventListener("change", () => {
+  const file = ocrFileInput.files[0];
+  if (file) runOCR(file);
+  ocrFileInput.value = ""; // allow re-selecting the same file
+});
+
+// Drag-and-drop events
+ocrDropZone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  ocrDropZone.classList.add("ocr-drag-over");
+});
+
+ocrDropZone.addEventListener("dragleave", (e) => {
+  if (!ocrDropZone.contains(e.relatedTarget)) {
+    ocrDropZone.classList.remove("ocr-drag-over");
+  }
+});
+
+ocrDropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  ocrDropZone.classList.remove("ocr-drag-over");
+  const file = e.dataTransfer.files[0];
+  if (file) runOCR(file);
+});
+
 let lastResponse = null; // Store the latest API response for language switching
 
 // ── Translations ──────────────────────────────────────────────────────────────
@@ -194,7 +302,7 @@ function getLocalizedExplanation(obj) {
      if (translations[text]) {
        return translations[text];
      }
-     
+
      // Try to find and replace known phrases
      let translated = text;
      for (const [english, lithuanian] of Object.entries(translations)) {
@@ -202,7 +310,7 @@ function getLocalizedExplanation(obj) {
      }
      return translated;
    }
-   
+
    return text; // fallback to original
  }
 
@@ -325,6 +433,7 @@ function updateUI() {
 clearBtn.addEventListener("click", () => {
   claimInput.value = "";
   resultCard.classList.add("hidden");
+  ocrShowState("idle");
   sendHeight();
 });
 
@@ -475,7 +584,7 @@ function autoCheck() {
       );
 
        setTimeout(sendHeight, 100);
-       
+
        // Store response for language re-translation
        lastResponse = response;
      }
@@ -537,7 +646,7 @@ function updateScoreRing(score) {
 
   // Ensure score is a rounded integer
   const roundedScore = Math.round(score || 0);
-  
+
   const radius = ring.r.baseVal.value;
   const circumference = 2 * Math.PI * radius;
 
@@ -553,13 +662,13 @@ function updateScoreRing(score) {
   } else {
     ring.style.stroke = "var(--score-low)";
   }
-  
+
   animateScoreText(roundedScore);
 }
 
 function animateScoreText(targetScore) {
   const scoreText = document.getElementById("scoreValue");
-  
+
   if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
     scoreText.textContent = "0"; // Changed from "!" to "0" for cleaner look
     return;
@@ -575,12 +684,12 @@ function animateScoreText(targetScore) {
     // Incrementing logic
     const step = Math.ceil(finalTarget / 20) || 1;
     current += step;
-    
+
     if (current >= finalTarget) {
       current = finalTarget;
       clearInterval(window.scoreInterval);
     }
-    
+
     // Display as integer
     scoreText.textContent = current;
   }, 30);
@@ -588,13 +697,13 @@ function animateScoreText(targetScore) {
 
 function retranslateExplanations() {
     if (!lastResponse) return;
-    
+
     // Retranslate main explanation
     const explanationEl = document.getElementById("finalExplanation");
     if (explanationEl) {
         explanationEl.textContent = getLocalizedExplanation(lastResponse);
     }
-    
+
     // Retranslate individual fact explanations
     const factsList = document.getElementById("individualFactsList");
     if (factsList && lastResponse.individual_facts) {
@@ -606,67 +715,7 @@ function retranslateExplanations() {
             }
         }
     }
-    
-    // Retranslate evidence explanations
-    const evidenceList = document.getElementById("evidenceList");
-    if (evidenceList && lastResponse.individual_results) {
-        const evidenceItems = evidenceList.getElementsByClassName("evidence-item");
-        for (let i = 0; i < evidenceItems.length && i < lastResponse.individual_results.length; i++) {
-            const evidenceExplanationEl = evidenceItems[i].querySelector(".evidence-explanation");
-            if (evidenceExplanationEl) {
-                evidenceExplanationEl.textContent = getLocalizedExplanation(lastResponse.individual_results[i]);
-            }
-        }
-    }
-}
 
-function updateLanguageButtonText() {
-    const languageToggle = document.getElementById("languageToggle");
-    // Show the opposite language: if current is EN, show LT to switch to LT; if current is LT, show EN to switch to EN
-    languageToggle.textContent = currentLang === "en" ? "LT" : "EN";
-}
-
-function animateScoreText(targetScore) {
-   const scoreText = document.getElementById("scoreValue");
-   if (targetScore === undefined || targetScore === null || isNaN(targetScore)) {
-     scoreText.textContent = "!";
-     return;
-   }
-
-   let current = 0;
-   if (window.scoreInterval) clearInterval(window.scoreInterval);
-
-   window.scoreInterval = setInterval(() => {
-     current += Math.ceil(targetScore / 20);
-     if (current >= targetScore) {
-       current = targetScore;
-       clearInterval(window.scoreInterval);
-     }
-     scoreText.textContent = current;
-   }, 30);
- }
-
-function retranslateExplanations() {
-    if (!lastResponse) return;
-    
-    // Retranslate main explanation
-    const explanationEl = document.getElementById("finalExplanation");
-    if (explanationEl) {
-        explanationEl.textContent = getLocalizedExplanation(lastResponse);
-    }
-    
-    // Retranslate individual fact explanations
-    const factsList = document.getElementById("individualFactsList");
-    if (factsList && lastResponse.individual_facts) {
-        const factItems = factsList.getElementsByClassName("fact-item");
-        for (let i = 0; i < factItems.length && i < lastResponse.individual_facts.length; i++) {
-            const factExplanationEl = factItems[i].querySelector(".fact-explanation");
-            if (factExplanationEl) {
-                factExplanationEl.textContent = getLocalizedExplanation(lastResponse.individual_facts[i]);
-            }
-        }
-    }
-    
     // Retranslate evidence explanations
     const evidenceList = document.getElementById("evidenceList");
     if (evidenceList && lastResponse.individual_results) {
@@ -690,49 +739,8 @@ document.getElementById("closePanelBtn").addEventListener("click", () => {
   window.parent.postMessage({ type: "CLOSE_PANEL" }, "*");
 });
 
-// ── Auth & UI ─────────────────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", function () {
-  const authBtnAction = document.getElementById("authBtnAction");
-  const userInfo = document.getElementById("userInfo");
-
-  function updateUI() {
-    chrome.storage.local.get(["token", "userEmail", "guestUsage"], (result) => {
-      const today = new Date().toLocaleDateString();
-      const checkBtn = document.getElementById("checkBtn");
-      const btnText = document.getElementById("btnText");
-      const LIMIT = 3;
-
-      if (result.token) {
-        userInfo.innerText = t("loggedInAs", { email: result.userEmail });
-        authBtnAction.innerText = t("logout");
-        checkBtn.disabled = false;
-        checkBtn.style.opacity = "1";
-        checkBtn.style.cursor = "pointer";
-      } else {
-        const count =
-          result.guestUsage && result.guestUsage.date === today
-            ? result.guestUsage.count
-            : 0;
-        const remaining = Math.max(0, LIMIT - count);
-
-        userInfo.innerText = t("guestUsage", { count: remaining });
-        authBtnAction.innerText = t("loginRegister");
-
-        if (remaining <= 0) {
-          checkBtn.disabled = true;
-          btnText.textContent = t("verdict.dailyLimitReached");
-          checkBtn.style.opacity = "0.6";
-          checkBtn.style.cursor = "not-allowed";
-        } else {
-          checkBtn.disabled = false;
-          btnText.textContent = t("checkFact");
-          checkBtn.style.opacity = "1";
-          checkBtn.style.cursor = "pointer";
-        }
-      }
-    });
-  }
-
+// ── Auth Button ───────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
   authBtnAction.addEventListener("click", () => {
     chrome.storage.local.get(["token"], (result) => {
       if (result.token) {

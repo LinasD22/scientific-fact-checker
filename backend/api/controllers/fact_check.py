@@ -62,8 +62,8 @@ router = APIRouter()
 
 _fact_checker: FactCheckerService | None = None
 
-LIMIT = 3
-
+LIMIT=3
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg"}
 
 def get_fact_checker() -> FactCheckerService:
     global _fact_checker
@@ -71,10 +71,78 @@ def get_fact_checker() -> FactCheckerService:
         _fact_checker = create_fact_checker()
     return _fact_checker
 
+@router.post("/fact-check/ocr")
+async def ocr_image(file: UploadFile = File(..., description="PNG or JPEG image to extract text from"),) -> JSONResponse:
+    """
+    Extract text from an uploaded PNG or JPEG image using Mistral OCR (mistral-ocr-latest).
+    Returns the extracted text as a plain string ready to be used as a fact-check claim.
+    """
+    # ── Validate content type ──────────────────────────────────────────────────
+    content_type = file.content_type or ""
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported file type '{content_type}'. Only PNG and JPEG images are accepted.",
+        )
+
+    # ── Read & encode image ────────────────────────────────────────────────────
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{content_type};base64,{image_b64}"
+
+    # ── Call Mistral OCR ───────────────────────────────────────────────────────
+    mistral_api_key = os.environ.get("MISTRAL_API_KEY")
+    if not mistral_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="MISTRAL_API_KEY is not configured on the server.",
+        )
+
+    try:
+        client = Mistral(api_key=mistral_api_key)
+        ocr_response = client.ocr.process(
+            model="mistral-ocr-latest",
+            document={
+                "type": "image_url",
+                "image_url": data_url,
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Mistral OCR request failed: {str(e)}",
+        )
+
+    # ── Collect text from all pages ────────────────────────────────────────────
+    pages_text: list[str] = []
+    for page in ocr_response.pages or []:
+        page_text = (page.markdown or "").strip()
+        if page_text:
+            pages_text.append(page_text)
+
+    extracted_text = "\n\n".join(pages_text).strip()
+
+    if not extracted_text:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"text": "", "message": "No text could be extracted from the image."},
+        )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"text": extracted_text},
+    )
+
+
 
 class FactCheckSearchBody(BaseModel):
     claim: str = Field(..., description="The fact/claim to verify")
-
 
 @router.post("/fact-check/search")
 async def fact_check_with_search(
@@ -96,7 +164,7 @@ async def fact_check_with_search(
         claim = body.claim
         service = get_fact_checker()
         LIMIT = 5 # Or your preferred limit
-        
+
         # ── Step 1: Extract individual facts from the provided text ──
         print(f"\n=== ORIGINAL WHOLE CLAIM: {claim} ===")
         print(f"\n=== Preprocessing: Extracting individual facts ===")
@@ -124,12 +192,12 @@ async def fact_check_with_search(
         for i, f_obj in enumerate(facts, 1):
             fact_text = f_obj["fact"]
             exact_quote = f_obj.get("exact_quote", fact_text)
-            
+
             translation_result = translate_to_english(fact_text)
             translated_text = translation_result["translated"]
             was_translated = translation_result["was_translated"]
             detected_lang = translation_result.get("detected_language", "unknown")
-            
+
             facts_to_check.append(translated_text)
             original_facts_metadata.append({
                 "original": fact_text,
@@ -138,7 +206,7 @@ async def fact_check_with_search(
                 "was_translated": was_translated,
                 "detected_language": detected_lang,
             })
-            
+
             if was_translated:
                 print(f"  Fact {i}: [{detected_lang} -> en] {fact_text}")
             else:
@@ -146,23 +214,23 @@ async def fact_check_with_search(
 
         # ── Step 2: Fact-check each individual fact IN PARALLEL ──
         print(f"\n=== Starting parallel fact-checking for {len(facts_to_check)} facts ===")
-        
+
         async def check_fact_async(fact_idx: int, fact_to_check: str, metadata: dict):
             """Wrapper to run blocking check_claim in thread pool."""
             loop = asyncio.get_event_loop()
             try:
                 result = await loop.run_in_executor(
-                    None, 
+                    None,
                     service.check_claim,
                     fact_to_check,
-                    None, 
+                    None,
                     LIMIT,
                 )
-                
+
                 # Build individual_results with Lithuanian explanations
                 individual_results = result.individual_results
                 summary_lithuanian = None
-                
+
                 # Always translate summary to Lithuanian
                 if result.summary:
                     try:
@@ -173,7 +241,7 @@ async def fact_check_with_search(
                         summary_lithuanian = summary_translation.get("translated")
                     except Exception as e:
                         logging.warning(f"Failed to translate summary to Lithuanian: {e}")
-                
+
                 # Translate explanations in individual_results to Lithuanian
                 translated_individuals = []
                 for ind_res in individual_results:
@@ -236,7 +304,7 @@ async def fact_check_with_search(
         # ── Step 3: Return results ──
         first_result = all_results[0] if all_results else {}
         first_metadata = original_facts_metadata[0] if original_facts_metadata else {}
-        
+
         response_content = {
             "total_facts_extracted": len(facts),
             "facts_checked": len([r for r in all_results if "error" not in r]),
@@ -256,7 +324,7 @@ async def fact_check_with_search(
 
         if user_id is not None:
             _persist_query(user_id, claim, response_content)
-        
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=response_content,

@@ -34,6 +34,19 @@
     data-i18n-placeholder="claimPlaceholder"
     placeholder="Paste a health claim to verify..."
   ></textarea>
+
+      <!-- ── Image OCR drop zone ───────────────────────────────────────── -->
+  <div id="ocrDropZone" class="ocr-drop-zone">
+    <input type="file" id="ocrFileInput" accept="image/png,image/jpeg" style="display:none;" />
+    <span id="ocrDropLabel" class="ocr-drop-label">
+    🖼️ Drop an image or <span class="ocr-browse-link" id="ocrBrowseBtn">browse</span>
+    </span>
+    <span id="ocrFileName" class="ocr-file-name" style="display:none;"></span>
+    <span id="ocrSpinner" class="ocr-spinner" style="display:none;">⏳ Extracting text…</span>
+    <span id="ocrError" class="ocr-error" style="display:none;"></span>
+  </div>
+      <!-- ──────────────────────────────────────────────────────────────── -->
+
   <button id="checkBtn">
     <span id="btnText" data-i18n="checkFact">Check Fact</span>
   </button>

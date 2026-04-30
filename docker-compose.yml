@@ -3,13 +3,14 @@ services:
   cf-tunnel-db:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    network_mode: host
+    ports:
+    - "3307:3307"
     env_file:
       - .env
     command: >
       access tcp
       --hostname db.healthfactchecker.site
-      --url localhost:3307
+      --url 0.0.0.0:3307
       --header "CF-Access-Client-Id: ${CF_CLIENT_ID}"
       --header "CF-Access-Client-Secret: ${CF_CLIENT_SECRET}"
 

@@ -56,6 +56,7 @@ def _call_mistral(system_prompt: str, user_prompt: str) -> str:
     return raw_content or ""
 
 
+
 def _call_mistral_reasoning(system_prompt: str, user_prompt: str) -> str:
     """
     Mistral Small 4 su reasoning mode per raw HTTP (SDK dar nepalaiko reasoning_effort).
