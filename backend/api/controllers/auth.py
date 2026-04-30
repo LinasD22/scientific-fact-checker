@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, APIRouter, Header, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlmodel import Session, select, delete
 from api.db.database import engine
 from api.db.models import User, Auth, TokenBlacklist
@@ -76,7 +76,7 @@ def login(data: OAuth2PasswordRequestForm = Depends(), session: Session = Depend
 
 def cleanup_blacklist(session: Session):
     # Delete everything where expires_at is in the past
-    statement = delete(TokenBlacklist).where(TokenBlacklist.expires_at < datetime.now(datetime.timezone.utc))
+    statement = delete(TokenBlacklist).where(TokenBlacklist.expires_at < datetime.now(timezone.utc))
     session.exec(statement)
     session.commit()
 

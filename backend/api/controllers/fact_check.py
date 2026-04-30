@@ -2,6 +2,12 @@
 API endpoints for the fact checker plugin.
 """
 
+import asyncio
+import logging
+from typing import Annotated
+from api.utils.ai_calls import extract_individual_facts, translate_to_english, translate_from_english
+from fastapi import Body, APIRouter, HTTPException, status
+from fastapi.responses import JSONResponse
 from datetime import date, datetime, timezone
 from typing import Annotated, Any
 
@@ -78,25 +84,25 @@ async def fact_check_with_search(
     """
     Full pipeline with preprocessing:
     1. Preprocess: Break text into individual factual claims using Mistral
-    2. For each claim:
-       a. Search Core API for relevant academic papers
-       b. Search Qdrant for high-relevance snippets
-       c. Use AI to fact-check snippets against the claim
+    2. For each claim (IN PARALLEL):
+        a. Search Core API for relevant academic papers
+        b. Search Qdrant for high-relevance snippets
+        c. Use AI to fact-check snippets against the claim
     3. Return results:
        - Backward compatible: first fact in top-level fields
        - New: all_results array with complete results for each fact
-    Request JSON: `{"claim": "...", "user_id": null|123}` — pass `user_id` to store this run in `Query` for `/history` APIs.
     """
     try:
         claim = body.claim
         service = get_fact_checker()
+        LIMIT = 5 # Or your preferred limit
         
         # ── Step 1: Extract individual facts from the provided text ──
         print(f"\n=== ORIGINAL WHOLE CLAIM: {claim} ===")
         print(f"\n=== Preprocessing: Extracting individual facts ===")
         facts_result = extract_individual_facts(claim)
         
-        # Accommodate the new AI format (dicts with exact_quote) while falling back to strings if needed
+        # Accommodate the new AI format (dicts with exact_quote) while falling back to strings
         raw_facts = facts_result.get("facts", [claim]) 
         facts = []
         for f in raw_facts:
@@ -110,29 +116,96 @@ async def fact_check_with_search(
         for i, f_obj in enumerate(facts, 1):
             print(f"  {i}. {f_obj['fact']} (Quote: {f_obj.get('exact_quote', 'N/A')})")
         
-        # ── Step 2: Fact-check each individual fact ──
-        all_results = []
+        # ── Step 1b: Translate non-English facts to English ──
+        print(f"\n=== Translating facts to English (if needed) ===")
+        facts_to_check = []  # English facts for fact-checking
+        original_facts_metadata = []  # Metadata for the response
         
-        for fact_idx, f_obj in enumerate(facts):
-            individual_fact = f_obj["fact"]
-            exact_quote = f_obj.get("exact_quote", individual_fact) # Grab the exact quote
+        for i, f_obj in enumerate(facts, 1):
+            fact_text = f_obj["fact"]
+            exact_quote = f_obj.get("exact_quote", fact_text)
             
-            print(f"\n=== Checking fact {fact_idx + 1}/{len(facts)}: {individual_fact} ===")
+            translation_result = translate_to_english(fact_text)
+            translated_text = translation_result["translated"]
+            was_translated = translation_result["was_translated"]
+            detected_lang = translation_result.get("detected_language", "unknown")
+            
+            facts_to_check.append(translated_text)
+            original_facts_metadata.append({
+                "original": fact_text,
+                "exact_quote": exact_quote,
+                "translated": translated_text,
+                "was_translated": was_translated,
+                "detected_language": detected_lang,
+            })
+            
+            if was_translated:
+                print(f"  Fact {i}: [{detected_lang} -> en] {fact_text}")
+            else:
+                print(f"  Fact {i}: [en] {fact_text}")
+
+        # ── Step 2: Fact-check each individual fact IN PARALLEL ──
+        print(f"\n=== Starting parallel fact-checking for {len(facts_to_check)} facts ===")
+        
+        async def check_fact_async(fact_idx: int, fact_to_check: str, metadata: dict):
+            """Wrapper to run blocking check_claim in thread pool."""
+            loop = asyncio.get_event_loop()
             try:
-                result = service.check_claim(
-                    original_claim=individual_fact,
-                    limit=LIMIT,
+                result = await loop.run_in_executor(
+                    None, 
+                    service.check_claim,
+                    fact_to_check,
+                    None, 
+                    LIMIT,
                 )
                 
-                all_results.append({
+                # Build individual_results with Lithuanian explanations
+                individual_results = result.individual_results
+                summary_lithuanian = None
+                
+                # Always translate summary to Lithuanian
+                if result.summary:
+                    try:
+                        summary_translation = await loop.run_in_executor(
+                            None,
+                            lambda txt=result.summary: translate_from_english(txt, "lithuanian")
+                        )
+                        summary_lithuanian = summary_translation.get("translated")
+                    except Exception as e:
+                        logging.warning(f"Failed to translate summary to Lithuanian: {e}")
+                
+                # Translate explanations in individual_results to Lithuanian
+                translated_individuals = []
+                for ind_res in individual_results:
+                    ind_copy = ind_res.copy()
+                    explanation = ind_res.get("explanation", "")
+                    if explanation:
+                        try:
+                            translation = await loop.run_in_executor(
+                                None,
+                                lambda txt=explanation: translate_from_english(txt, "lithuanian")
+                            )
+                            ind_copy["explanation_lithuanian"] = translation.get("translated")
+                        except Exception as e:
+                            logging.warning(f"Failed to translate explanation to Lithuanian: {e}")
+                            ind_copy["explanation_lithuanian"] = None
+                    else:
+                        ind_copy["explanation_lithuanian"] = None
+                    translated_individuals.append(ind_copy)
+
+                return {
                     "fact_index": fact_idx,
-                    "original_fact": individual_fact,
-                    "exact_quote": exact_quote, # <--- ADD THIS NEW FIELD
+                    "original_fact": metadata["original"],
+                    "exact_quote": metadata["exact_quote"],
+                    "translated_fact": metadata.get("translated"),
+                    "was_translated": metadata.get("was_translated", False),
+                    "detected_language": metadata.get("detected_language"),
                     "consensus": result.consensus,
                     "final_verdict": result.final_verdict,
                     "summary": result.summary,
+                    "summary_lithuanian": summary_lithuanian,
                     "agreement_score": result.agreement_score,
-                    "individual_results": result.individual_results,
+                    "individual_results": translated_individuals,
                     "articles_used": [
                         {
                             "title": article.title,
@@ -144,32 +217,36 @@ async def fact_check_with_search(
                         }
                         for article in result.articles_used
                     ],
-                })
-                
-                print(f"Verdict: {result.final_verdict} (confidence: {result.agreement_score:.2f})")
-                
+                }
             except Exception as e:
-                print(f"Error checking fact {fact_idx + 1}: {str(e)}")
-                all_results.append({
+                print(f"✗ Error checking fact {fact_idx + 1}: {str(e)}")
+                return {
                     "fact_index": fact_idx,
-                    "original_fact": individual_fact,
+                    "original_fact": metadata["original"],
+                    "exact_quote": metadata["exact_quote"],
                     "error": str(e),
-                })
+                }
+
+        # Run all checks in parallel
+        all_results = await asyncio.gather(
+            *[check_fact_async(i, facts_to_check[i], original_facts_metadata[i])
+              for i in range(len(facts_to_check))]
+        )
         
         # ── Step 3: Return results ──
-        # Backward compatible: first fact in top-level fields
-        # Frontend-ready: all_results array with complete results
         first_result = all_results[0] if all_results else {}
+        first_metadata = original_facts_metadata[0] if original_facts_metadata else {}
         
         response_content = {
             "total_facts_extracted": len(facts),
             "facts_checked": len([r for r in all_results if "error" not in r]),
-            "current_fact_index": 0,  # Frontend placeholder
-            "current_fact": facts[0] if facts else claim,
-            # === BACKWARD COMPATIBLE (first fact only) ===
+            "current_fact_index": 0,
+            "current_fact": first_metadata.get("original", claim),
+            # === BACKWARD COMPATIBLE ===
             "consensus": first_result.get("consensus"),
             "final_verdict": first_result.get("final_verdict"),
             "summary": first_result.get("summary"),
+            "summary_lithuanian": first_result.get("summary_lithuanian"),
             "agreement_score": first_result.get("agreement_score"),
             "individual_results": first_result.get("individual_results", []),
             "articles_used": first_result.get("articles_used", []),
@@ -187,13 +264,11 @@ async def fact_check_with_search(
 
     except Exception as e:
         import traceback
-        import logging
         logging.error(f"Fact-check search failed: {e}\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Fact-check failed: {str(e)}",
         )
-
 
 @router.post("/fact-check/texts")
 async def fact_check_with_texts(
