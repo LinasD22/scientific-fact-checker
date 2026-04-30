@@ -66,11 +66,8 @@ function updateAuthTexts() {
   document.getElementById("toggleLink").textContent = isLogin ? t("register") : t("login");
 }
 
-// ── Theme & language sync ────────────────────────────────────────────────────
-chrome.storage.local.get(["theme", "language", "token"], (data) => {
-  if (data.theme === "dark") {
-    document.body.classList.add("dark-mode");
-  }
+// ── Language sync ─────────────────────────────────────────────────────────────
+chrome.storage.local.get(["language", "token"], (data) => {
   if (data.language && ["en", "lt"].includes(data.language)) {
     currentLang = data.language;
   }
@@ -86,13 +83,34 @@ document.getElementById("toggleLink").addEventListener("click", () => {
   updateAuthTexts();
 });
 
+// ── Language Toggle ──────────────────────────────────────────────────────────
+const languageToggle = document.getElementById("languageToggle");
+
+function updateLanguageButtonText() {
+  languageToggle.textContent = currentLang === "en" ? "LT" : "EN";
+}
+
+languageToggle.addEventListener("click", () => {
+  currentLang = currentLang === "en" ? "lt" : "en";
+  chrome.storage.local.set({ language: currentLang });
+  applyTranslations();
+  updateLanguageButtonText();
+  updateAuthTexts();
+});
+
+// Listen for language changes from other parts of the extension
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (changes.language) {
+    currentLang = changes.language.newValue;
+    applyTranslations();
+    updateLanguageButtonText();
+    updateAuthTexts();
+  }
+});
+
 document.getElementById('authBtn').addEventListener('click', async () => {
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
-    //local
-    const url = isLogin ? "http://localhost:8000/auth/login" : "http://localhost:8000/auth/register";
-    //server
-    //const url = isLogin ? "http://api.healthfactchecker.site/auth/login" : "http://api.healthfactchecker.site/auth/register";
 
   const url = isLogin
   ? "http://localhost:8000/auth/login"

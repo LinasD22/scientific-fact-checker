@@ -276,21 +276,6 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     }
 });
 
-// Listen for language changes from other parts of the extension (e.g., background.js)
-chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (changes.language) {
-        currentLang = changes.language.newValue;
-        applyTranslations();
-        updateLanguageButtonText();
-        // Retranslate explanations if we have a stored response
-        if (lastResponse) {
-            retranslateExplanations();
-        }
-        // Update UI (guest count, etc.)
-        updateUI();
-    }
-});
-
 // ── Load selected text but DO NOT auto-check ─────────────────────────────────
 chrome.storage.local.get("lastClaim", (data) => {
   if (data.lastClaim) {
@@ -335,17 +320,6 @@ function updateUI() {
 		}
 	});
 }
-
-// Toggle logic
-themeToggle.addEventListener("click", () => {
-  const isDark = document.body.classList.toggle("dark-mode");
-  
-  // Update button icon
-  themeToggle.textContent = isDark ? "☀️" : "🌙";
-  
-  // Save preference
-  chrome.storage.local.set({ theme: isDark ? "dark" : "light" });
-});
 
 // Clear Button Logic
 clearBtn.addEventListener("click", () => {
