@@ -54,7 +54,7 @@ from sentence_transformers import CrossEncoder
 COLLECTION = "fact_checker_cache"
 
 _EMBED_BATCH_SIZE  = 128
-_UPSERT_BATCH_SIZE = 256
+_UPSERT_BATCH_SIZE = 512   # buvo 256 — didesnis batch = mažiau round-trip'ų į Qdrant
 _THREAD_POOL_SIZE  = 8
 _FETCH_MULTIPLIER  = 2
 _RERANK_BATCH      = 16
@@ -71,7 +71,7 @@ _PAYLOAD_FIELDS = [
 
 class QdrantVectorClient:
     """Persistent local Qdrant client for searching scientific text snippets.
-    
+
     Thread-safe: All Qdrant operations are protected by locks to prevent
     concurrent modification errors when both API searches and background indexing
     are running simultaneously.
@@ -111,11 +111,11 @@ class QdrantVectorClient:
         logging.info("Reranker ready.")
 
         self.client = QdrantClient(path=self.cache_path)
-        
+
         # Thread safety: RLock allows the same thread to acquire the lock multiple times
         # This is critical for nested operations (search → rerank) without deadlock
         self._collection_lock = threading.RLock()
-        
+
         self._ensure_collection()
 
         self.splitter = RecursiveCharacterTextSplitter(
@@ -158,7 +158,7 @@ class QdrantVectorClient:
                     )
                 ),
                 optimizers_config=OptimizersConfigDiff(
-                    indexing_threshold=5000,
+                    indexing_threshold=20000,
                     memmap_threshold=500000,
                 ),
             )
@@ -187,23 +187,65 @@ class QdrantVectorClient:
     def _is_cached(self, fingerprint: str) -> bool:
         """Check if fingerprint exists in cache - PROTECTED by lock."""
         with self._collection_lock:
+            return self._is_cached_unlocked(fingerprint)
+
+    def _is_cached_unlocked(self, fingerprint: str) -> bool:
+        try:
+            results = self.client.scroll(
+                collection_name=COLLECTION,
+                scroll_filter=Filter(
+                    must=[FieldCondition(
+                        key="fingerprint",
+                        match=MatchValue(value=fingerprint),
+                    )]
+                ),
+                limit=1,
+                with_payload=False,
+                with_vectors=False,
+            )
+            return len(results[0]) > 0
+        except Exception as e:
+            logging.error(f"Error checking cache for fingerprint: {e}")
+            return False
+
+    def _batch_is_cached(self, fingerprints: list[str]) -> set[str]:
+        """
+        Batch fingerprint tikrinimas — VIENAS Qdrant scroll kvietimas.
+
+        Vietoj N atskirų scroll'ų (po vieną per straipsnį), siunčiamas
+        vienas should filtras su visais fingerprint'ais iš karto.
+        Grąžina set'ą fingerprint'ų, kurie jau yra kešuoti.
+        """
+        if not fingerprints:
+            return set()
+
+        cached: set[str] = set()
+        # Skaidomame į batch'us — Qdrant should filtras veikia gerai iki ~500
+        _BATCH = 500
+        for i in range(0, len(fingerprints), _BATCH):
+            batch = fingerprints[i : i + _BATCH]
             try:
-                results = self.client.scroll(
+                from qdrant_client.models import MatchAny
+                results, _ = self.client.scroll(
                     collection_name=COLLECTION,
                     scroll_filter=Filter(
                         must=[FieldCondition(
                             key="fingerprint",
-                            match=MatchValue(value=fingerprint),
+                            match=MatchAny(any=batch),
                         )]
                     ),
-                    limit=1,
-                    with_payload=False,
+                    limit=len(batch),
+                    with_payload=["fingerprint"],
                     with_vectors=False,
                 )
-                return len(results[0]) > 0
+                for point in results:
+                    fp = (point.payload or {}).get("fingerprint", "")
+                    if fp:
+                        cached.add(fp)
             except Exception as e:
-                logging.error(f"Error checking cache for fingerprint: {e}")
-                return False
+                logging.error(f"Batch fingerprint check error: {e}")
+                # Fallback: nė vienas nelaikomas kešuotu — bus re-indeksuotas
+        return cached
 
     # ── Embedding (ONNX / fastembed) ───────────────────────────────────────────
 
@@ -224,11 +266,7 @@ class QdrantVectorClient:
         candidates: list[dict[str, Any]],
         top_k: int,
     ) -> list[dict[str, Any]]:
-        """Rerank candidates - PROTECTED by lock to prevent concurrent issues.
-        
-        Includes graceful fallback for size mismatches that can occur during
-        concurrent Qdrant modifications (indexing + searching).
-        """
+
         if not candidates:
             return []
 
@@ -240,7 +278,7 @@ class QdrantVectorClient:
             for i in range(0, len(pairs), _RERANK_BATCH):
                 batch_scores = self.reranker.predict(pairs[i : i + _RERANK_BATCH]).tolist()
                 all_scores.extend(batch_scores)
-            
+
             # Safety check: verify alignment
             if len(all_scores) != len(candidates):
                 logging.warning(
@@ -250,7 +288,7 @@ class QdrantVectorClient:
                 min_len = min(len(all_scores), len(candidates))
                 all_scores = all_scores[:min_len]
                 candidates = candidates[:min_len]
-            
+
             # Assign scores safely
             for candidate, score in zip(candidates, all_scores):
                 candidate["rerank_score"] = round(float(score), 4)
@@ -290,47 +328,44 @@ class QdrantVectorClient:
         published_date: str | None = None,
         url: str | None = None,
     ) -> int:
-        """Store work in Qdrant - PROTECTED by lock.
-        
-        Called by background indexer and on-demand by API searches.
-        Lock ensures consistent state during chunking, embedding, and upsert.
-        """
-        with self._collection_lock:
-            try:
-                raw_chunks = self.splitter.split_text(text)
-                if not raw_chunks:
-                    return 0
 
-                vectors = self._embed(raw_chunks)
+        try:
+            raw_chunks = self.splitter.split_text(text)
+            if not raw_chunks:
+                return 0
 
-                points = [
-                    PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=vectors[i],
-                        payload={
-                            "chunk_text":     raw_chunks[i],
-                            "source":         title,
-                            "fingerprint":    fingerprint,
-                            "source_db":      source_db,
-                            "source_id":      source_id,
-                            "authors":        authors,
-                            "published_date": published_date,
-                            "url":            url,
-                        },
-                    )
-                    for i in range(len(raw_chunks))
-                ]
+            vectors = self._embed(raw_chunks)
 
+            points = [
+                PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=vectors[i],
+                    payload={
+                        "chunk_text":     raw_chunks[i],
+                        "source":         title,
+                        "fingerprint":    fingerprint,
+                        "source_db":      source_db,
+                        "source_id":      source_id,
+                        "authors":        authors,
+                        "published_date": published_date,
+                        "url":            url,
+                    },
+                )
+                for i in range(len(raw_chunks))
+            ]
+
+            # ── Tik upsert su lock'u ─────────────────────────────────────────
+            with self._collection_lock:
                 for i in range(0, len(points), _UPSERT_BATCH_SIZE):
                     self.client.upsert(
                         collection_name=COLLECTION,
                         points=points[i : i + _UPSERT_BATCH_SIZE],
                     )
 
-                return len(points)
-            except Exception as e:
-                logging.error(f"Error storing work '{title}': {e}")
-                return 0
+            return len(points)
+        except Exception as e:
+            logging.error(f"Error storing work '{title}': {e}")
+            return 0
 
     # ── Bulk indexing (background indexer) ────────────────────────────────────
 
@@ -341,11 +376,11 @@ class QdrantVectorClient:
         """
         Indeksuoja kelis straipsnius vienu embed kvietimu.
 
-        Vietoj N atskirų `_store_work` kvietimų (kiekvienas su savo `_embed`),
-        šis metodas:
-          1. Suchunk'ina visus straipsnius
-          2. Iškviečia `_embed` VIENĄ kartą su visais chunk'ais iš karto
-          3. Batch upsert'ina viską į Qdrant
+        Optimizacijos:
+          1. Fingerprint tikrinimas — vienas scroll su OR filtru (ne N atskirų)
+          2. Embed'inimas vyksta BEZ lock'o
+          3. Lock'as laikomas TIK upsert fazės metu
+          4. Didesnis upsert batch (_UPSERT_BATCH_SIZE)
 
         Args:
             articles: Sąrašas dict'ų su raktais:
@@ -358,36 +393,44 @@ class QdrantVectorClient:
         if not articles:
             return {}
 
-        # ── 1. Chunk'iname kiekvieną straipsnį, renkame į vieną sąrašą ───────
-        # Struktūra: [(chunk_text, metadata_dict), ...]
-        all_chunks: list[str] = []
-        all_meta:   list[dict[str, Any]] = []
-
-        skipped_fingerprint = 0
-        article_chunk_counts: dict[str, int] = {}  # pmc_id → kiek chunk'ų
-
+        # ── 1. Chunk'iname ir renkame fingerprint'us────────────
+        candidate_articles = []
         for art in articles:
             pmc_id = art.get("pmc_id", "")
             title  = art.get("title") or "Unknown"
             text   = art.get("text") or ""
-
             if not text:
                 continue
-
             raw_chunks = self.splitter.split_text(text)
             if not raw_chunks:
                 continue
-
             fingerprint = self._fingerprint(title, text)
+            candidate_articles.append((art, raw_chunks, fingerprint))
 
-            # Fingerprint check — apsauga nuo to paties straipsnio per du topic'us
-            if self._is_cached(fingerprint):
+        if not candidate_articles:
+            logging.info("store_bulk_batch: nėra teksto indeksavimui")
+            return {}
+
+        # ── 2. Batch fingerprint tikrinimas — VIENAS scroll su visais FP ─────
+        all_fingerprints = [fp for _, _, fp in candidate_articles]
+        cached_fingerprints = self._batch_is_cached(all_fingerprints)
+
+        # ── 3. Filtruojame jau kešuotus straipsnius ──────────────────────────
+        all_chunks: list[str] = []
+        all_meta:   list[dict[str, Any]] = []
+        article_chunk_counts: dict[str, int] = {}
+        skipped_fingerprint = 0
+
+        for art, raw_chunks, fingerprint in candidate_articles:
+            pmc_id = art.get("pmc_id", "")
+
+            if fingerprint in cached_fingerprints:
                 logging.debug(f"store_bulk_batch: skip (fingerprint) {pmc_id}")
                 skipped_fingerprint += 1
                 continue
 
             meta = {
-                "source":         title,
+                "source":         art.get("title") or "Unknown",
                 "fingerprint":    fingerprint,
                 "source_db":      art.get("source_db", "pubmed_bulk"),
                 "source_id":      pmc_id,
@@ -403,7 +446,7 @@ class QdrantVectorClient:
 
             logging.debug(
                 f"store_bulk_batch: queued [{pmc_id}] "
-                f"{title[:50]} → {len(raw_chunks)} chunks (offset {start_idx})"
+                f"{meta['source'][:50]} → {len(raw_chunks)} chunks (offset {start_idx})"
             )
 
         if skipped_fingerprint:
@@ -413,7 +456,6 @@ class QdrantVectorClient:
             logging.info("store_bulk_batch: nėra naujų chunk'ų indeksavimui")
             return {}
 
-        # ── 2. Vienas embed kvietimas su VISAIS chunk'ais ─────────────────────
         logging.info(
             f"store_bulk_batch: embed {len(all_chunks)} chunk'ų "
             f"iš {len(article_chunk_counts)} straipsnių..."
@@ -423,7 +465,6 @@ class QdrantVectorClient:
         elapsed = __import__("time").monotonic() - t0
         logging.info(f"store_bulk_batch: embed baigtas [{elapsed:.1f}s]")
 
-        # ── 3. Sukuriame PointStruct objektus ────────────────────────────────
         points = [
             PointStruct(
                 id=str(__import__("uuid").uuid4()),
@@ -436,12 +477,14 @@ class QdrantVectorClient:
             for i in range(len(all_chunks))
         ]
 
-        # ── 4. Batch upsert ───────────────────────────────────────────────────
-        for i in range(0, len(points), _UPSERT_BATCH_SIZE):
-            self.client.upsert(
-                collection_name=COLLECTION,
-                points=points[i : i + _UPSERT_BATCH_SIZE],
-            )
+        # ── 6. Upsert SU lock'u — kuo trumpiau ───────────────────────────────
+        with self._collection_lock:
+            for i in range(0, len(points), _UPSERT_BATCH_SIZE):
+                self.client.upsert(
+                    collection_name=COLLECTION,
+                    points=points[i : i + _UPSERT_BATCH_SIZE],
+                    wait=False,
+                )
 
         logging.info(
             f"store_bulk_batch: upsert'inta {len(points)} chunk'ų "
@@ -459,13 +502,6 @@ class QdrantVectorClient:
         top_k: int = 5,
         works_metadata: dict[str, dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        """Search snippets from specific works - PROTECTED by lock.
-        
-        The lock wraps the entire operation to ensure:
-        - Cache checks are consistent
-        - New works are stored safely
-        - Reranking uses stable candidate list
-        """
         if not works:
             return []
 
@@ -475,104 +511,104 @@ class QdrantVectorClient:
             if w.get("text", "")
         ]
 
-        def check_work(args: tuple[str, str]) -> tuple[str, str, str, bool]:
+        def prep_work(args: tuple[str, str]) -> tuple[str, str, str]:
             title, text = args
             fp = self._fingerprint(title, text)
-            # Cache check is done under lock later
-            return title, text, fp, False  # Will check under lock
+            return title, text, fp
 
-        futures = [self._executor.submit(check_work, w) for w in valid_works]
+        futures = [self._executor.submit(prep_work, w) for w in valid_works]
         cache_results = [f.result() for f in futures]
 
-        # Main operation under lock
+        cached_titles, new_titles = [], []
+        works_meta = works_metadata or {}
+
+        all_fps = [fp for _, _, fp in cache_results]
         with self._collection_lock:
-            cached_titles, new_titles = [], []
-            works_meta = works_metadata or {}
-            
-            for title, text, fp, _ in cache_results:
-                # Check cache under lock
-                if self._is_cached(fp):
-                    cached_titles.append(title)
-                    logging.info(f"Cache HIT  → '{title}'")
-                else:
-                    meta = works_meta.get(title, {})
-                    n = self._store_work(
-                        title, text, fp,
-                        source_db=meta.get("source_db", "lazy"),
-                        source_id=meta.get("source_id", ""),
-                        authors=meta.get("authors"),
-                        published_date=meta.get("published_date"),
-                        url=meta.get("url"),
-                    )
-                    new_titles.append(title)
-                    logging.info(f"Cache MISS → '{title}' stored {n} chunks")
+            cached_fps = self._batch_is_cached(all_fps)
 
-            all_titles = cached_titles + new_titles
-            if not all_titles:
-                logging.warning("No usable works found - all texts were empty.")
-                return []
-
-            logging.info(
-                f"Cache stats: {len(cached_titles)} hit(s), {len(new_titles)} miss(es)"
-            )
-
-            fetch_limit = top_k * _FETCH_MULTIPLIER
-            query_vector = self._embed([claim])[0]
-            
-            try:
-                response = self.client.query_points(
-                    collection_name=COLLECTION,
-                    query=query_vector,
-                    query_filter=Filter(
-                        must=[FieldCondition(
-                            key="source",
-                            match=MatchAny(any=all_titles),
-                        )]
-                    ),
-                    limit=fetch_limit,
-                    with_payload=_PAYLOAD_FIELDS,
-                    score_threshold=self.min_score,
-                    search_params=SearchParams(
-                        hnsw_ef=96,
-                        exact=False,
-                        quantization=QuantizationSearchParams(
-                            ignore=False,
-                            rescore=True,
-                            oversampling=2.0,
-                        ),
-                    ),
+        for title, text, fp in cache_results:
+            if fp in cached_fps:
+                cached_titles.append(title)
+                logging.info(f"Cache HIT  → '{title}'")
+            else:
+                meta = works_meta.get(title, {})
+                # _store_work acquires lock internally for upsert only
+                n = self._store_work(
+                    title, text, fp,
+                    source_db=meta.get("source_db", "lazy"),
+                    source_id=meta.get("source_id", ""),
+                    authors=meta.get("authors"),
+                    published_date=meta.get("published_date"),
+                    url=meta.get("url"),
                 )
-            except Exception as e:
-                logging.error(f"Vector search error: {e}")
-                return []
+                new_titles.append(title)
+                logging.info(f"Cache MISS → '{title}' stored {n} chunks")
 
-            candidates = []
-            for hit in response.points:
-                payload = hit.payload or {}
-                candidates.append({
-                    "text":           payload.get("chunk_text", ""),
-                    "source":         payload.get("source", "Unknown"),
-                    "title":          payload.get("source", "Unknown"),
-                    "score":          round(hit.score, 4),
-                    "rerank_score":   -5.0,
-                    "source_db":      payload.get("source_db", ""),
-                    "source_id":      payload.get("source_id", ""),
-                    "authors":        payload.get("authors"),
-                    "published_date": payload.get("published_date"),
-                    "url":            payload.get("url"),
-                })
+        all_titles = cached_titles + new_titles
+        if not all_titles:
+            logging.warning("No usable works found - all texts were empty.")
+            return []
 
-            if not candidates:
-                logging.warning("All vector search candidates below min_score threshold.")
-                return []
+        logging.info(
+            f"Cache stats: {len(cached_titles)} hit(s), {len(new_titles)} miss(es)"
+        )
 
-            logging.info(
-                f"Vector search: {len(candidates)} candidates above threshold "
-                f"(requested {fetch_limit})"
+        fetch_limit = top_k * _FETCH_MULTIPLIER
+        query_vector = self._embed([claim])[0]
+
+        try:
+            response = self.client.query_points(
+                collection_name=COLLECTION,
+                query=query_vector,
+                query_filter=Filter(
+                    must=[FieldCondition(
+                        key="source",
+                        match=MatchAny(any=all_titles),
+                    )]
+                ),
+                limit=fetch_limit,
+                with_payload=_PAYLOAD_FIELDS,
+                score_threshold=self.min_score,
+                search_params=SearchParams(
+                    hnsw_ef=96,
+                    exact=False,
+                    quantization=QuantizationSearchParams(
+                        ignore=False,
+                        rescore=True,
+                        oversampling=2.0,
+                    ),
+                ),
             )
+        except Exception as e:
+            logging.error(f"Vector search error: {e}")
+            return []
 
-            # Reranking happens while lock is held (safe)
-            return self._rerank(claim, candidates, top_k)
+        candidates = []
+        for hit in response.points:
+            payload = hit.payload or {}
+            candidates.append({
+                "text":           payload.get("chunk_text", ""),
+                "source":         payload.get("source", "Unknown"),
+                "title":          payload.get("source", "Unknown"),
+                "score":          round(hit.score, 4),
+                "rerank_score":   -5.0,
+                "source_db":      payload.get("source_db", ""),
+                "source_id":      payload.get("source_id", ""),
+                "authors":        payload.get("authors"),
+                "published_date": payload.get("published_date"),
+                "url":            payload.get("url"),
+            })
+
+        if not candidates:
+            logging.warning("All vector search candidates below min_score threshold.")
+            return []
+
+        logging.info(
+            f"Vector search: {len(candidates)} candidates above threshold "
+            f"(requested {fetch_limit})"
+        )
+
+        return self._rerank(claim, candidates, top_k)
 
     def search_global(
         self,
@@ -580,55 +616,56 @@ class QdrantVectorClient:
         top_k: int = 3,
         min_score: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Search entire collection - PROTECTED by lock."""
-        with self._collection_lock:
-            threshold = min_score if min_score is not None else self.global_min_score
-            query_vector = self._embed([claim])[0]
-            fetch_limit = top_k * _FETCH_MULTIPLIER
+        threshold = min_score if min_score is not None else self.global_min_score
 
-            try:
-                response = self.client.query_points(
-                    collection_name=COLLECTION,
-                    query=query_vector,
-                    limit=fetch_limit,
-                    with_payload=_PAYLOAD_FIELDS,
-                    score_threshold=threshold,
-                    search_params=SearchParams(
-                        hnsw_ef=64,
-                        exact=False,
-                        quantization=QuantizationSearchParams(
-                            ignore=False,
-                            rescore=True,
-                            oversampling=2.0,
-                        ),
+        query_vector = self._embed([claim])[0]
+        fetch_limit = top_k * _FETCH_MULTIPLIER
+
+        try:
+            response = self.client.query_points(
+                collection_name=COLLECTION,
+                query=query_vector,
+                limit=fetch_limit,
+                with_payload=_PAYLOAD_FIELDS,
+                score_threshold=threshold,
+                search_params=SearchParams(
+                    hnsw_ef=64,
+                    exact=False,
+                    quantization=QuantizationSearchParams(
+                        ignore=False,
+                        rescore=True,
+                        oversampling=2.0,
                     ),
-                )
-            except Exception as e:
-                logging.error(f"Global search error: {e}")
-                return []
+                ),
+            )
+        except Exception as e:
+            logging.error(f"Global search error: {e}")
+            return []
 
-            candidates = []
-            for hit in response.points:
-                payload = hit.payload or {}
-                candidates.append({
-                    "text":           payload.get("chunk_text", ""),
-                    "source":         payload.get("source", "Unknown"),
-                    "title":          payload.get("source", "Unknown"),
-                    "score":          round(hit.score, 4),
-                    "rerank_score":   -5.0,
-                    "source_db":      payload.get("source_db", "unknown"),
-                    "source_id":      payload.get("source_id", ""),
-                    "authors":        payload.get("authors"),
-                    "published_date": payload.get("published_date"),
-                    "url":            payload.get("url"),
-                })
+        candidates = []
+        for hit in response.points:
+            payload = hit.payload or {}
+            candidates.append({
+                "text":           payload.get("chunk_text", ""),
+                "source":         payload.get("source", "Unknown"),
+                "title":          payload.get("source", "Unknown"),
+                "score":          round(hit.score, 4),
+                "rerank_score":   -5.0,
+                "source_db":      payload.get("source_db", "unknown"),
+                "source_id":      payload.get("source_id", ""),
+                "authors":        payload.get("authors"),
+                "published_date": payload.get("published_date"),
+                "url":            payload.get("url"),
+            })
 
-            if not candidates:
-                logging.info("search_global: nieko nerasta virš threshold.")
-                return []
+        if not candidates:
+            logging.info("search_global: nieko nerasta virš threshold.")
+            return []
 
-            logging.info(f"search_global: {len(candidates)} kandidatai → reranking")
-            return self._rerank(claim, candidates, top_k)
+        logging.info(f"search_global: {len(candidates)} kandidatai → reranking")
+
+        # ── Rerank BEZ lock'o — gryna CPU ─────────────────────────────────────
+        return self._rerank(claim, candidates, top_k)
 
     # ── Cache management ───────────────────────────────────────────────────────
 
