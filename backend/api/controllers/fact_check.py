@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Annotated
 from api.utils.ai_calls import extract_individual_facts, translate_to_english, translate_from_english
-from fastapi import Body, APIRouter, HTTPException, status
+from fastapi import Body, APIRouter, HTTPException, status, UploadFile, File
 from fastapi.responses import JSONResponse
 from datetime import date, datetime, timezone
 from typing import Annotated, Any

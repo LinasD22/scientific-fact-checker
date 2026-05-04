@@ -15,12 +15,14 @@ Thread Safety:
 - Prevents concurrent modifications during indexing + searching
 - Lock is held during: search, store, cache checks, reranking
 """
+import cProfile
 import hashlib
 import logging
 import os
+import pstats
 import uuid
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -86,7 +88,7 @@ class QdrantVectorClient:
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
         )
         self.min_score        = float(os.getenv("QDRANT_MIN_SCORE",        "0.65"))
-        self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE",      "-5.0"))
+        self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE",      "-2.0"))
         self.global_min_score = float(os.getenv("QDRANT_GLOBAL_MIN_SCORE", "0.55"))
         self.chunk_size       = int(os.getenv("QDRANT_CHUNK_SIZE",         "800"))
         self.chunk_overlap    = int(os.getenv("QDRANT_CHUNK_OVERLAP",      "50"))
@@ -106,8 +108,10 @@ class QdrantVectorClient:
         logging.info(f"Loading cross-encoder reranker: {self.reranker_model_name}")
         self.reranker = CrossEncoder(
             self.reranker_model_name,
-            device="cpu",
-        )
+            device="cpu"
+            #backend="onnx",
+            #model_kwargs={"provider": "CPUExecutionProvider"}
+        )#pip install sentence-transformers[onnx]
         logging.info("Reranker ready.")
 
         self.client = QdrantClient(path=self.cache_path)
@@ -260,12 +264,49 @@ class QdrantVectorClient:
 
     # ── Reranking (cross-encoder) ──────────────────────────────────────────────
 
+    def _rerank_parallel(
+            self,
+            claim: str,
+            candidates: list[dict[str, Any]],
+            top_k: int,
+            num_threads: int = 4,
+    ) -> list[dict[str, Any]]:
+        if not candidates:
+            return []
+
+        # Padalinti kandidatus į grupes
+        chunk_size = max(1, len(candidates) // num_threads)
+        chunks = [candidates[i:i + chunk_size] for i in range(0, len(candidates), chunk_size)]
+
+        def rerank_chunk(chunk):
+            if not chunk:
+                return []
+            pairs = [(claim, c["text"]) for c in chunk]
+            scores = self.reranker.predict(pairs, show_progress_bar=False).tolist()
+            for c, s in zip(chunk, scores):
+                c["rerank_score"] = round(float(s), 4)
+            return chunk
+
+        # Parallelinis vykdymas
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [executor.submit(rerank_chunk, chunk) for chunk in chunks]
+            reranked_chunks = []
+            for future in as_completed(futures):
+                reranked_chunks.extend(future.result())
+
+        # Surūšiuoti ir grąžinti top_k
+        reranked_chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
+        return reranked_chunks[:top_k]
+
+
     def _rerank(
         self,
         claim: str,
         candidates: list[dict[str, Any]],
         top_k: int,
     ) -> list[dict[str, Any]]:
+
+
 
         if not candidates:
             return []
@@ -608,6 +649,13 @@ class QdrantVectorClient:
             f"(requested {fetch_limit})"
         )
 
+        profiler = cProfile.Profile()
+        profiler.enable()
+        result = self._rerank(claim, candidates, top_k)
+        stats = pstats.Stats(profiler)
+        stats.sort_stats('cumulative')
+        stats.print_stats(10)
+
         return self._rerank(claim, candidates, top_k)
 
     def search_global(
@@ -664,7 +712,13 @@ class QdrantVectorClient:
 
         logging.info(f"search_global: {len(candidates)} kandidatai → reranking")
 
-        # ── Rerank BEZ lock'o — gryna CPU ─────────────────────────────────────
+        profiler = cProfile.Profile()
+        profiler.enable()
+        result = self._rerank(claim, candidates, top_k)
+        stats = pstats.Stats(profiler)
+        stats.sort_stats('cumulative')
+        stats.print_stats(10)
+
         return self._rerank(claim, candidates, top_k)
 
     # ── Cache management ───────────────────────────────────────────────────────
