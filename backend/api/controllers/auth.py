@@ -71,7 +71,8 @@ def login(data: OAuth2PasswordRequestForm = Depends(), session: Session = Depend
     # sub (subject) is unique identifier for the user, using user email here
     access_token = create_access_token(data={"sub": user_auth.email})
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    user = session.exec(select(User).where(User.email == data.username)).first()
+    return {"access_token": access_token, "token_type": "bearer", "user_id": user.id}
     
 
 def cleanup_blacklist(session: Session):
