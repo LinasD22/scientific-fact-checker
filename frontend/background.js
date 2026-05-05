@@ -1,3 +1,23 @@
+// Strip common markdown syntax, returning plain text
+function stripMarkdown(text) {
+  return text
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`{1,3}[^`]*`{1,3}/g, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "")
+    .replace(/^[-_*]{3,}\s*$/gm, "")
+    .replace(/>\s+/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 if (chrome.contextMenus) {
 
   const translations = {
@@ -83,12 +103,42 @@ if (chrome.contextMenus) {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("Background received message:", request);
 
+    if (request.type === "OCR_REQUEST") {
+      const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
+      //const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
+      try {
+        // Reconstruct Blob from base64
+        const binary = atob(request.data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: request.mimeType });
+
+        const formData = new FormData();
+        formData.append("file", blob, request.fileName);
+
+        fetch(OCR_API_URL, { method: "POST", body: formData })
+          .then(r => {
+            if (!r.ok) return r.json().then(e => { throw new Error(e.detail || `Server error ${r.status}`); });
+            return r.json();
+          })
+          .then(data => {
+            const raw = (data.text || "").trim();
+            const plain = stripMarkdown(raw);
+            sendResponse({ text: plain });
+          })
+          .catch(err => sendResponse({ error: err.message || "OCR failed." }));
+      } catch (err) {
+        sendResponse({ error: err.message || "OCR failed." });
+      }
+      return true; // Keep channel open for async response
+    }
+
     if (request.type === "FACT_CHECK") {
       // Handle fact check request
       checkFact(request.claim)
         .then(result => {
           sendResponse(result);
-          
+
           chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
             if (tabs[0]) {
               chrome.tabs.sendMessage(tabs[0].id, {
@@ -119,9 +169,9 @@ if (chrome.contextMenus) {
 
     // Determine your URL (use local for testing, ddns for production)
     //server
-    const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+    //const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
     //local
-    //const API_URL = "http://localhost:8000/api/fact-check/search";
+    const API_URL = "http://localhost:8000/api/fact-check/search";
 
     // Retrieve the token from storage
     const { token } = await chrome.storage.local.get("token");
@@ -173,7 +223,11 @@ if (chrome.contextMenus) {
       explanation: res.summary || "",
       explanation_lt: res.summary_lithuanian || "",
       score: typeof res.agreement_score === "number" ? res.agreement_score : 0,
-      sources: res.articles_used || []
+      sources: res.articles_used || [],
+      snippets: (res.individual_results || []).map(item => ({
+        ...item,
+        explanation_lt: item.explanation_lithuanian || ""
+      }))
     }));
 
     // Include individual_results for evidence panel
