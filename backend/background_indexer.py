@@ -10,6 +10,12 @@ Veikimo principas:
     2. Kiekvienas straipsnis tikrinamas ar jau indeksuotas (pagal pmc_id)
     3. Nauji straipsniai: chunk → embed → store į Qdrant
     4. Progresas saugomas progress.json — galima sustabdyti ir tęsti
+
+Optimizacijos (v2):
+    - Gilesnė pipeline: PREFETCH_DEPTH topic'ų fetch'inami lygiagrečiai
+      kol vyksta embed+upsert
+    - DELAY_BETWEEN_TOPICS = 0 — dirbtinis lėtinimas pašalintas
+    - store_bulk_batch: visas topic'as embed'inamas ir upsert'inamas vienu kvietimu
 """
 
 import argparse
@@ -19,7 +25,7 @@ import os
 import re
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from datetime import datetime
 from pathlib import Path
 
@@ -35,8 +41,6 @@ from api.utils.pubmed_api_client import PubMedAPIClient
 from api.utils.qdrant_vector_client import QdrantVectorClient
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-# Windows konsolė naudoja cp1252 — lietuviški simboliai netelpa.
-# Nustatome UTF-8 stdout/stderr ir logging handler'iams.
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -55,14 +59,17 @@ log = logging.getLogger(__name__)
 
 ARTICLES_PER_TOPIC = int(os.getenv("INDEXER_ARTICLES_PER_TOPIC", "20"))
 
-# Pauzė tarp topic'ų (sekundės)
-DELAY_BETWEEN_TOPICS = float(os.getenv("INDEXER_TOPIC_DELAY", "1.0"))
+# Sumažinta iki 0 — fetch/embed/upsert pasiskirsto lygiagrečiai,
+# dirbtinis lėtinimas nebereikalingas.
+DELAY_BETWEEN_TOPICS = float(os.getenv("INDEXER_TOPIC_DELAY", "0.0"))
 
-# Lygiagrečių fetch'ų skaičius (be API key: max 3 req/s → 3 workers)
-# Su PUBMED_API_KEY: max 10 req/s → 8 workers saugiai
-FETCH_WORKERS = int(os.getenv("INDEXER_FETCH_WORKERS", "8"))
+FETCH_WORKERS = int(os.getenv("INDEXER_FETCH_WORKERS", "10"))
 
-PROGRESS_FILE = os.getenv("INDEXER_PROGRESS_FILE", "indexer_progress.json")
+# Kiek topic'ų iš anksto fetch'inti (pipeline gylis).
+# 2 = kol embed'inamas N, fetch'inami N+1 ir N+2 lygiagrečiai.
+PREFETCH_DEPTH = int(os.getenv("INDEXER_PREFETCH_DEPTH", "2"))
+
+PROGRESS_FILE     = os.getenv("INDEXER_PROGRESS_FILE", "indexer_progress.json")
 INDEXED_IDS_CACHE = os.getenv("INDEXER_IDS_CACHE", "indexed_pmc_ids.json")
 
 TOPICS = []
@@ -71,7 +78,6 @@ TOPICS = []
 # ── Text cleaning ─────────────────────────────────────────────────────────────
 
 def clean_text(text: str) -> str:
-    """Valo tekstą prieš embed'inimą."""
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = re.sub(r'[ \t]{2,}', ' ', text)
     text = re.sub(r'\x0c', '\n', text)
@@ -89,8 +95,6 @@ def load_progress() -> dict:
 
 
 def save_progress(progress: dict) -> None:
-    # Saugojame tik completed_topics ir stats — ne indexed_pmc_ids
-    # (Qdrant yra authoritative šaltinis; set'as laikomas atmintyje)
     slim = {
         "completed_topics": progress.get("completed_topics", []),
         "stats": progress.get("stats", {}),
@@ -104,11 +108,8 @@ def save_progress(progress: dict) -> None:
 def load_indexed_ids_from_qdrant(qdrant: QdrantVectorClient) -> set[str]:
     """
     Nuskaito visus source_id (pmc_id) iš Qdrant.
-    Pirma tikrina lokalų cache failą (indexed_pmc_ids.json) —
-    jei egzistuoja ir nėra per senas, naudoja jį vietoje lėto Qdrant scroll.
-    Rezultatas laikomas atmintyje kaip set.
+    Pirma tikrina lokalų cache failą — jei egzistuoja, naudoja jį.
     """
-    # ── 1. Bandome įkelti iš lokalaus cache ──────────────────────────────────
     cache_path = Path(INDEXED_IDS_CACHE)
     if cache_path.exists():
         cache_age_h = (time.time() - cache_path.stat().st_mtime) / 3600
@@ -122,22 +123,18 @@ def load_indexed_ids_from_qdrant(qdrant: QdrantVectorClient) -> set[str]:
         except Exception as e:
             log.warning(f"  Cache nuskaitymas nepavyko ({e}), skanuojamas Qdrant...")
 
-    # ── 2. Cache nėra — skanuojame Qdrant su didesniu batch dydžiu ──────────
     log.info("Kraunami jau indeksuoti PMC ID iš Qdrant (gali užtrukti)...")
     indexed: set[str] = set()
     offset = None
     batch_num = 0
-    BATCH_SIZE = 10_000  # 10x greičiau nei 1000
+    BATCH_SIZE = 10_000
 
     while True:
         try:
             results, next_offset = qdrant.client.scroll(
                 collection_name="fact_checker_cache",
                 scroll_filter=Filter(must=[
-                    FieldCondition(
-                        key="source_db",
-                        match=MatchValue(value="pubmed_bulk"),
-                    )
+                    FieldCondition(key="source_db", match=MatchValue(value="pubmed_bulk"))
                 ]),
                 limit=BATCH_SIZE,
                 offset=offset,
@@ -148,7 +145,6 @@ def load_indexed_ids_from_qdrant(qdrant: QdrantVectorClient) -> set[str]:
             log.warning(f"Klaida skaitant Qdrant: {e}")
             break
 
-        log.info(f"next offset {next_offset}")
         for point in results:
             sid = (point.payload or {}).get("source_id", "")
             if sid:
@@ -162,9 +158,8 @@ def load_indexed_ids_from_qdrant(qdrant: QdrantVectorClient) -> set[str]:
             break
         offset = next_offset
 
-    log.info(f"Rasta {len(indexed)} jau indeksuotų straipsnių Qdrant | offset: {offset}")
+    log.info(f"Rasta {len(indexed)} jau indeksuotų straipsnių Qdrant")
 
-    # ── 3. Išsaugome cache ────────────────────────────────────────────────────
     try:
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump({"ids": list(indexed), "saved_at": datetime.now().isoformat()}, f)
@@ -176,10 +171,6 @@ def load_indexed_ids_from_qdrant(qdrant: QdrantVectorClient) -> set[str]:
 
 
 def _prepare_article(article: dict, pmc_id: str) -> dict | None:
-    """
-    Parengia straipsnio dict'ą store_bulk_batch kvietimui.
-    Grąžina None jei nėra teksto.
-    """
     title     = article.get("title") or "Unknown"
     full_text = article.get("full_text") or ""
     abstract  = article.get("abstract") or ""
@@ -207,19 +198,7 @@ def fetch_batch(
     pmc_ids: list[str],
     max_workers: int = FETCH_WORKERS,
 ) -> dict[str, dict]:
-    """
-    Fetch'ina kelis straipsnius lygiagrečiai.
-
-    Args:
-        pubmed:      PubMedAPIClient instance.
-        pmc_ids:     Sąrašas PMC ID, kuriuos reikia fetch'inti.
-        max_workers: Lygiagrečių thread'ų kiekis.
-
-    Returns:
-        Dict {pmc_id: article_content} — tik sėkmingai gauti straipsniai.
-    """
     results: dict[str, dict] = {}
-
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         future_to_id = {
             pool.submit(pubmed.fetch_article_content, pmc_id): pmc_id
@@ -233,9 +212,7 @@ def fetch_batch(
                     results[pmc_id] = content
             except Exception as e:
                 log.warning(f"  Fetch klaida [{pmc_id}]: {e}")
-
     return results
-
 
 
 def fetch_and_prepare(
@@ -246,7 +223,6 @@ def fetch_and_prepare(
 ) -> tuple[str, list[dict], dict]:
     """
     Vieno topic'o fetch + prepare fazė (be embedding).
-    Grąžina (topic, prepared_articles, partial_stats).
     Kviečiama background thread'e kol embed'inamas ankstesnis topic'as.
     """
     stats = {"new": 0, "skipped_cached": 0, "skipped_no_text": 0, "errors": 0}
@@ -286,10 +262,15 @@ def fetch_and_prepare(
     return topic, prepared, stats
 
 
+# ── Pagrindinis run ───────────────────────────────────────────────────────────
+
 def run_indexer(once: bool = True, interval: int = 3600) -> None:
     """
-    Paleidžia background indexer'į su pipeline optimizacija:
-    kol embed'inamas topic N, background thread'e fetch'inamas topic N+1.
+    Paleidžia background indexer'į su giliu pipeline (PREFETCH_DEPTH topic'ų).
+
+    Pipeline:
+        - Kol embed'inamas topic N, lygiagrečiai fetch'inami N+1 .. N+PREFETCH_DEPTH
+        - Visas topic'as embed'inamas ir upsert'inamas vienu store_bulk_batch kvietimu
 
     Args:
         once:     True = vienkartinis run, False = kartojasi kas `interval` sekundžių
@@ -299,69 +280,80 @@ def run_indexer(once: bool = True, interval: int = 3600) -> None:
     qdrant = QdrantVectorClient()
     TOPICS = get_optimal_topics()
 
-    log.info("Background indexer paleistas")
+    log.info("Background indexer paleistas (v2 — gilaus pipeline)")
     log.info(f"  Topics: {len(TOPICS)}")
     log.info(f"  Straipsnių per topic: {ARTICLES_PER_TOPIC}")
     log.info(f"  Fetch workers: {FETCH_WORKERS}")
+    log.info(f"  Prefetch gylis: {PREFETCH_DEPTH}")
     log.info(f"  Režimas: {'vienkartinis' if once else f'kas {interval}s'}")
 
     indexed_ids = load_indexed_ids_from_qdrant(qdrant)
 
-    # Atskiras thread pool tik pipeline fetch'ui (1 thread pakanka —
-    # fetch_and_prepare viduje jau naudoja FETCH_WORKERS per fetch_batch)
-    pipeline_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pipeline")
+    # PREFETCH_DEPTH thread'ų — kiekvienas fetch'ina vieną topic'ą
+    pipeline_pool = ThreadPoolExecutor(
+        max_workers=PREFETCH_DEPTH,
+        thread_name_prefix="pipeline",
+    )
 
     while True:
-        progress  = load_progress()
-        run_stats = {"new": 0, "skipped": 0, "errors": 0}
+        progress   = load_progress()
+        run_stats  = {"new": 0, "skipped": 0, "errors": 0}
         start_time = datetime.now()
         completed  = set(progress.get("completed_topics", []))
 
-        # Sudaryti sąrašą topic'ų, kurie dar neatlikti šiame run'e
         pending = [t for t in TOPICS if t not in completed]
         log.info(f"Liko {len(pending)} topic'ų")
 
         if not pending:
             log.info("Visi topic'ai atlikti — run baigtas.")
         else:
-            # ── Pipeline: iš anksto paleisti pirmojo topic'o fetch'ą ────────
-            next_future = pipeline_pool.submit(
-                fetch_and_prepare, pending[0], pubmed, indexed_ids
-            )
+            # ── Gilaus pipeline inicializacija ───────────────────────────────
+            # Iš anksto paleisti pirmuosius PREFETCH_DEPTH topic'ų fetch'us.
+            prefetch_queue: list[tuple[int, Future]] = []
+            for pi in range(min(PREFETCH_DEPTH, len(pending))):
+                fut = pipeline_pool.submit(
+                    fetch_and_prepare, pending[pi], pubmed, indexed_ids
+                )
+                prefetch_queue.append((pi, fut))
 
             for i, topic in enumerate(pending):
                 # 1. Gauti šio topic'o paruoštus straipsnius
-                cur_topic, prepared, fetch_stats = next_future.result()
+                _, cur_future = prefetch_queue.pop(0)
+                cur_topic, prepared, fetch_stats = cur_future.result()
 
-                # 2. Iš karto paleisti kito topic'o fetch'ą background'e
-                #    (vyksta lygiagrečiai su embed+upsert žemiau)
-                if i + 1 < len(pending):
-                    next_future = pipeline_pool.submit(
-                        fetch_and_prepare, pending[i + 1], pubmed, indexed_ids
+                # 2. Paleisti kito prefetch'o topic'o fetch'ą
+                next_pi = i + PREFETCH_DEPTH
+                if next_pi < len(pending):
+                    fut = pipeline_pool.submit(
+                        fetch_and_prepare, pending[next_pi], pubmed, indexed_ids
                     )
+                    prefetch_queue.append((next_pi, fut))
 
-                # 3. Embed + upsert (čia CPU intensyvus darbas)
+                # 3. Embed + upsert — visas topic'as vienu store_bulk_batch kvietimu
                 embed_stats = {"new": 0, "skipped_no_text": 0, "errors": 0}
+
                 if prepared:
                     log.info(f"Embed+upsert: '{cur_topic}' ({len(prepared)} straipsnių)")
+                    t0 = time.monotonic()
                     chunk_counts = qdrant.store_bulk_batch(prepared)
+                    elapsed = time.monotonic() - t0
 
                     for pmc_id, n_chunks in chunk_counts.items():
                         log.info(f"  ✓ [{pmc_id}] → {n_chunks} chunks")
-                        embed_stats["new"] += 1
                         indexed_ids.add(pmc_id)
 
-                    skipped_fp = len(prepared) - len(chunk_counts)
-                    embed_stats["skipped_no_text"] += skipped_fp
+                    embed_stats["new"] += len(chunk_counts)
+                    embed_stats["skipped_no_text"] += len(prepared) - len(chunk_counts)
+                    log.info(f"  Embed+upsert baigtas [{elapsed:.1f}s]")
                 else:
                     log.info(f"  Nėra naujų straipsnių: '{cur_topic}'")
 
-                # 4. Susumuoti statistiką
+                # 4. Statistika
                 topic_stats = {
-                    "new":              embed_stats["new"],
-                    "skipped_cached":   fetch_stats["skipped_cached"],
-                    "skipped_no_text":  fetch_stats["skipped_no_text"] + embed_stats["skipped_no_text"],
-                    "errors":           fetch_stats["errors"] + embed_stats["errors"],
+                    "new":             embed_stats["new"],
+                    "skipped_cached":  fetch_stats["skipped_cached"],
+                    "skipped_no_text": fetch_stats["skipped_no_text"] + embed_stats["skipped_no_text"],
+                    "errors":          fetch_stats["errors"] + embed_stats["errors"],
                 }
                 run_stats["new"]     += topic_stats["new"]
                 run_stats["skipped"] += topic_stats["skipped_cached"] + topic_stats["skipped_no_text"]
@@ -374,7 +366,8 @@ def run_indexer(once: bool = True, interval: int = 3600) -> None:
                 }
                 save_progress(progress)
 
-                time.sleep(DELAY_BETWEEN_TOPICS)
+                if DELAY_BETWEEN_TOPICS > 0:
+                    time.sleep(DELAY_BETWEEN_TOPICS)
 
         # Run baigtas
         progress["completed_topics"] = []
@@ -390,7 +383,6 @@ def run_indexer(once: bool = True, interval: int = 3600) -> None:
         log.info(f"  Unikalūs PMC ID:   {len(indexed_ids)}")
         save_progress(progress)
 
-        # Atnaujinti ID cache po run'o
         try:
             with open(INDEXED_IDS_CACHE, "w", encoding="utf-8") as f:
                 json.dump({"ids": list(indexed_ids), "saved_at": datetime.now().isoformat()}, f)
@@ -410,28 +402,18 @@ def run_indexer(once: bool = True, interval: int = 3600) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PubMed background indexer")
-    parser.add_argument(
-        "--loop",
-        action="store_true",
-        help="Kartoti kas --interval sekundžių (default: vienkartinis run)",
-    )
-    parser.add_argument(
-        "--interval",
-        type=int,
-        default=3600,
-        help="Pauzė tarp run'ų sekundėmis (default: 3600 = 1h)",
-    )
-    parser.add_argument(
-        "--topics",
-        type=int,
-        default=None,
-        help="Kiek topic'ų paleisti (debug: --topics 2)",
-    )
-    parser.add_argument(
-        "--reset-progress",
-        action="store_true",
-        help="Išvalo progress.json ir pradeda iš naujo",
-    )
+    parser.add_argument("--loop", action="store_true",
+                        help="Kartoti kas --interval sekundžių")
+    parser.add_argument("--interval", type=int, default=3600,
+                        help="Pauzė tarp run'ų sekundėmis (default: 3600)")
+    parser.add_argument("--topics", type=int, default=None,
+                        help="Kiek topic'ų paleisti (debug: --topics 2)")
+    parser.add_argument("--reset-progress", action="store_true",
+                        help="Išvalo progress.json ir pradeda iš naujo")
+    parser.add_argument("--mini-batch", type=int, default=None,
+                        help="Mini-batch dydis embed+upsert fazei (default: 5)")
+    parser.add_argument("--prefetch", type=int, default=None,
+                        help=f"Pipeline prefetch gylis (default: {PREFETCH_DEPTH})")
     args = parser.parse_args()
 
     if args.reset_progress and Path(PROGRESS_FILE).exists():
@@ -441,8 +423,11 @@ if __name__ == "__main__":
         Path(INDEXED_IDS_CACHE).unlink()
         log.info("ID cache failas išvalytas.")
 
+    if args.mini_batch:
+        os.environ["INDEXER_MINI_BATCH"] = str(args.mini_batch)
+    if args.prefetch:
+        PREFETCH_DEPTH = args.prefetch
     if args.topics:
-        original = TOPICS.copy()
         TOPICS[:] = TOPICS[:args.topics]
         log.info(f"Debug režimas: {len(TOPICS)} topic(s)")
 

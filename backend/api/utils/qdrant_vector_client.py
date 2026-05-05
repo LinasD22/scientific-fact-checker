@@ -55,7 +55,7 @@ from sentence_transformers import CrossEncoder
 
 COLLECTION = "fact_checker_cache"
 
-_EMBED_BATCH_SIZE  = 128
+_EMBED_BATCH_SIZE  = 256
 _UPSERT_BATCH_SIZE = 512   # buvo 256 — didesnis batch = mažiau round-trip'ų į Qdrant
 _THREAD_POOL_SIZE  = 8
 _FETCH_MULTIPLIER  = 2
