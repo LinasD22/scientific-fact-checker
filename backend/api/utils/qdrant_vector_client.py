@@ -108,10 +108,8 @@ class QdrantVectorClient:
         logging.info(f"Loading cross-encoder reranker: {self.reranker_model_name}")
         self.reranker = CrossEncoder(
             self.reranker_model_name,
-            device="cpu"
-            #backend="onnx",
-            #model_kwargs={"provider": "CPUExecutionProvider"}
-        )#pip install sentence-transformers[onnx]
+            device="cpu",
+        )
         logging.info("Reranker ready.")
 
         self.client = QdrantClient(path=self.cache_path)
@@ -305,8 +303,6 @@ class QdrantVectorClient:
         candidates: list[dict[str, Any]],
         top_k: int,
     ) -> list[dict[str, Any]]:
-
-
 
         if not candidates:
             return []
@@ -649,13 +645,6 @@ class QdrantVectorClient:
             f"(requested {fetch_limit})"
         )
 
-        profiler = cProfile.Profile()
-        profiler.enable()
-        result = self._rerank(claim, candidates, top_k)
-        stats = pstats.Stats(profiler)
-        stats.sort_stats('cumulative')
-        stats.print_stats(10)
-
         return self._rerank(claim, candidates, top_k)
 
     def search_global(
@@ -711,13 +700,6 @@ class QdrantVectorClient:
             return []
 
         logging.info(f"search_global: {len(candidates)} kandidatai → reranking")
-
-        profiler = cProfile.Profile()
-        profiler.enable()
-        result = self._rerank(claim, candidates, top_k)
-        stats = pstats.Stats(profiler)
-        stats.sort_stats('cumulative')
-        stats.print_stats(10)
 
         return self._rerank(claim, candidates, top_k)
 

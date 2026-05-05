@@ -53,7 +53,7 @@ log = logging.getLogger(__name__)
 
 # ── Konfigūracija ─────────────────────────────────────────────────────────────
 
-ARTICLES_PER_TOPIC = int(os.getenv("INDEXER_ARTICLES_PER_TOPIC", "200"))
+ARTICLES_PER_TOPIC = int(os.getenv("INDEXER_ARTICLES_PER_TOPIC", "20"))
 
 # Pauzė tarp topic'ų (sekundės)
 DELAY_BETWEEN_TOPICS = float(os.getenv("INDEXER_TOPIC_DELAY", "1.0"))
@@ -63,6 +63,7 @@ DELAY_BETWEEN_TOPICS = float(os.getenv("INDEXER_TOPIC_DELAY", "1.0"))
 FETCH_WORKERS = int(os.getenv("INDEXER_FETCH_WORKERS", "8"))
 
 PROGRESS_FILE = os.getenv("INDEXER_PROGRESS_FILE", "indexer_progress.json")
+INDEXED_IDS_CACHE = os.getenv("INDEXER_IDS_CACHE", "indexed_pmc_ids.json")
 
 TOPICS = []
 
@@ -102,12 +103,31 @@ def save_progress(progress: dict) -> None:
 
 def load_indexed_ids_from_qdrant(qdrant: QdrantVectorClient) -> set[str]:
     """
-    Nuskaito visus source_id (pmc_id) iš Qdrant vienu praėjimu.
-    Kviečiama tik kartą paleidus — rezultatas laikomas atmintyje kaip set.
+    Nuskaito visus source_id (pmc_id) iš Qdrant.
+    Pirma tikrina lokalų cache failą (indexed_pmc_ids.json) —
+    jei egzistuoja ir nėra per senas, naudoja jį vietoje lėto Qdrant scroll.
+    Rezultatas laikomas atmintyje kaip set.
     """
-    log.info("Kraunami jau indeksuoti PMC ID iš Qdrant...")
+    # ── 1. Bandome įkelti iš lokalaus cache ──────────────────────────────────
+    cache_path = Path(INDEXED_IDS_CACHE)
+    if cache_path.exists():
+        cache_age_h = (time.time() - cache_path.stat().st_mtime) / 3600
+        log.info(f"Rastas lokalus ID cache ({cache_path}, amžius: {cache_age_h:.1f}h)")
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            indexed = set(data.get("ids", []))
+            log.info(f"  Įkelti {len(indexed)} ID iš cache (greitas paleidimas)")
+            return indexed
+        except Exception as e:
+            log.warning(f"  Cache nuskaitymas nepavyko ({e}), skanuojamas Qdrant...")
+
+    # ── 2. Cache nėra — skanuojame Qdrant su didesniu batch dydžiu ──────────
+    log.info("Kraunami jau indeksuoti PMC ID iš Qdrant (gali užtrukti)...")
     indexed: set[str] = set()
     offset = None
+    batch_num = 0
+    BATCH_SIZE = 10_000  # 10x greičiau nei 1000
 
     while True:
         try:
@@ -119,7 +139,7 @@ def load_indexed_ids_from_qdrant(qdrant: QdrantVectorClient) -> set[str]:
                         match=MatchValue(value="pubmed_bulk"),
                     )
                 ]),
-                limit=1000,
+                limit=BATCH_SIZE,
                 offset=offset,
                 with_payload=["source_id"],
                 with_vectors=False,
@@ -128,16 +148,30 @@ def load_indexed_ids_from_qdrant(qdrant: QdrantVectorClient) -> set[str]:
             log.warning(f"Klaida skaitant Qdrant: {e}")
             break
 
+        log.info(f"next offset {next_offset}")
         for point in results:
             sid = (point.payload or {}).get("source_id", "")
             if sid:
                 indexed.add(sid)
 
+        batch_num += 1
+        if batch_num % 10 == 0:
+            log.info(f"  ... nuskaityta {len(indexed)} ID ({batch_num} batchų)")
+
         if next_offset is None:
             break
         offset = next_offset
 
-    log.info(f"Rasta {len(indexed)} jau indeksuotų straipsnių Qdrant")
+    log.info(f"Rasta {len(indexed)} jau indeksuotų straipsnių Qdrant | offset: {offset}")
+
+    # ── 3. Išsaugome cache ────────────────────────────────────────────────────
+    try:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump({"ids": list(indexed), "saved_at": datetime.now().isoformat()}, f)
+        log.info(f"ID cache išsaugotas → {cache_path}")
+    except Exception as e:
+        log.warning(f"Cache išsaugoti nepavyko: {e}")
+
     return indexed
 
 
@@ -356,6 +390,14 @@ def run_indexer(once: bool = True, interval: int = 3600) -> None:
         log.info(f"  Unikalūs PMC ID:   {len(indexed_ids)}")
         save_progress(progress)
 
+        # Atnaujinti ID cache po run'o
+        try:
+            with open(INDEXED_IDS_CACHE, "w", encoding="utf-8") as f:
+                json.dump({"ids": list(indexed_ids), "saved_at": datetime.now().isoformat()}, f)
+            log.info(f"ID cache atnaujintas → {INDEXED_IDS_CACHE}")
+        except Exception as e:
+            log.warning(f"ID cache atnaujinti nepavyko: {e}")
+
         if once:
             pipeline_pool.shutdown(wait=False)
             break
@@ -395,6 +437,9 @@ if __name__ == "__main__":
     if args.reset_progress and Path(PROGRESS_FILE).exists():
         Path(PROGRESS_FILE).unlink()
         log.info("Progress failas išvalytas.")
+    if args.reset_progress and Path(INDEXED_IDS_CACHE).exists():
+        Path(INDEXED_IDS_CACHE).unlink()
+        log.info("ID cache failas išvalytas.")
 
     if args.topics:
         original = TOPICS.copy()
