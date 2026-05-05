@@ -828,7 +828,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ── History API base URL ──────────────────────────────────────────────────────
-const HISTORY_API = "https://api.healthfactchecker.site/history";
+//const HISTORY_API = "https://api.healthfactchecker.site/history";
+const HISTORY_API = "http://localhost:8000/history";
  
 // ── Tab switching ─────────────────────────────────────────────────────────────
 const tabCheck   = document.getElementById("tabCheck");
