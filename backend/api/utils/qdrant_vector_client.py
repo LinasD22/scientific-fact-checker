@@ -145,12 +145,12 @@ class QdrantVectorClient:
                 vectors_config=VectorParams(
                     size=self.vector_size,
                     distance=Distance.COSINE,
-                    on_disk=False,
+                    on_disk=True,
                 ),
                 hnsw_config=HnswConfigDiff(
-                    m=32,               # default 16
-                    ef_construct=200,   # default 100
-                    on_disk=False,
+                    m=16,               # default 16
+                    ef_construct=32,   # default 100
+                    on_disk=True,
                 ),
                 quantization_config=ScalarQuantization(
                     scalar=ScalarQuantizationConfig(
@@ -161,7 +161,9 @@ class QdrantVectorClient:
                 ),
                 optimizers_config=OptimizersConfigDiff(
                     indexing_threshold=20000,
-                    memmap_threshold=500000,
+                    memmap_threshold=10000,
+                    max_optimization_threads=1,
+                    flush_interval_sec=30,
                 ),
             )
             for field in ("fingerprint", "source", "source_db", "source_id"):
