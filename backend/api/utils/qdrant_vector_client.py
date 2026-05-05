@@ -15,11 +15,10 @@ Thread Safety:
 - Prevents concurrent modifications during indexing + searching
 - Lock is held during: search, store, cache checks, reranking
 """
-import cProfile
 import hashlib
 import logging
 import os
-import pstats
+import time
 import uuid
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -45,6 +44,8 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from MeshParser import log
+
 os.environ.setdefault("OMP_NUM_THREADS", "16")
 os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
 os.environ.setdefault("ONNXRUNTIME_INTER_OP_NUM_THREADS", "16")
@@ -56,7 +57,7 @@ from sentence_transformers import CrossEncoder
 COLLECTION = "fact_checker_cache"
 
 _EMBED_BATCH_SIZE  = 256
-_UPSERT_BATCH_SIZE = 512   # buvo 256 — didesnis batch = mažiau round-trip'ų į Qdrant
+_UPSERT_BATCH_SIZE = 512
 _THREAD_POOL_SIZE  = 8
 _FETCH_MULTIPLIER  = 2
 _RERANK_BATCH      = 16
@@ -148,8 +149,8 @@ class QdrantVectorClient:
                     on_disk=True,
                 ),
                 hnsw_config=HnswConfigDiff(
-                    m=16,               # default 16
-                    ef_construct=32,   # default 100
+                    m=16,
+                    ef_construct=32,
                     on_disk=True,
                 ),
                 quantization_config=ScalarQuantization(
@@ -229,7 +230,6 @@ class QdrantVectorClient:
         for i in range(0, len(fingerprints), _BATCH):
             batch = fingerprints[i : i + _BATCH]
             try:
-                from qdrant_client.models import MatchAny
                 results, _ = self.client.scroll(
                     collection_name=COLLECTION,
                     scroll_filter=Filter(
@@ -297,7 +297,6 @@ class QdrantVectorClient:
         # Surūšiuoti ir grąžinti top_k
         reranked_chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
         return reranked_chunks[:top_k]
-
 
     def _rerank(
         self,
@@ -408,36 +407,30 @@ class QdrantVectorClient:
 
     # ── Bulk indexing (background indexer) ────────────────────────────────────
 
-    def store_bulk_batch(
+    def embed_articles_bulk(
         self,
         articles: list[dict[str, Any]],
-    ) -> dict[str, int]:
+    ) -> tuple[list[str], list[list[float]], list[dict], dict[str, int]]:
+        log.info(f"EMBED STARTING: {articles[0].get('pmc_id', 'unknown')} at {time.time()}")
         """
-        Indeksuoja kelis straipsnius vienu embed kvietimu.
+        Atlieka tik chunk'inimą ir embedding'ą (be upsert).
 
-        Optimizacijos:
-          1. Fingerprint tikrinimas — vienas scroll su OR filtru (ne N atskirų)
-          2. Embed'inimas vyksta BEZ lock'o
-          3. Lock'as laikomas TIK upsert fazės metu
-          4. Didesnis upsert batch (_UPSERT_BATCH_SIZE)
-
-        Args:
-            articles: Sąrašas dict'ų su raktais:
-                        pmc_id, title, text, source_db, source_id,
-                        authors (optional), published_date (optional), url (optional)
-
-        Returns:
-            {pmc_id: n_chunks_stored} — tik sėkmingai indeksuotų straipsnių.
+        Šis metodas yra CPU-intensive ir gali būti kviečiamas lygiagrečiai
+        skirtinguose thread'uose. Grąžina:
+            - chunks: sąrašas chunk'ų tekstų
+            - vectors: sąrašas vektorių
+            - payloads: sąrašas payload'ų (metaduomenų)
+            - article_chunk_counts: {pmc_id: chunk_count}
         """
         if not articles:
-            return {}
+            return [], [], [], {}
 
-        # ── 1. Chunk'iname ir renkame fingerprint'us────────────
+        # 1. Chunk'inimas ir fingerprintų generavimas
         candidate_articles = []
         for art in articles:
             pmc_id = art.get("pmc_id", "")
-            title  = art.get("title") or "Unknown"
-            text   = art.get("text") or ""
+            title = art.get("title") or "Unknown"
+            text = art.get("text") or ""
             if not text:
                 continue
             raw_chunks = self.splitter.split_text(text)
@@ -447,16 +440,16 @@ class QdrantVectorClient:
             candidate_articles.append((art, raw_chunks, fingerprint))
 
         if not candidate_articles:
-            logging.info("store_bulk_batch: nėra teksto indeksavimui")
-            return {}
+            logging.info("embed_articles_bulk: nėra teksto indeksavimui")
+            return [], [], [], {}
 
-        # ── 2. Batch fingerprint tikrinimas — VIENAS scroll su visais FP ─────
+        # 2. Batch fingerprint tikrinimas — VIENAS scroll su visais FP
         all_fingerprints = [fp for _, _, fp in candidate_articles]
         cached_fingerprints = self._batch_is_cached(all_fingerprints)
 
-        # ── 3. Filtruojame jau kešuotus straipsnius ──────────────────────────
+        # 3. Filtruojame jau kešuotus straipsnius
         all_chunks: list[str] = []
-        all_meta:   list[dict[str, Any]] = []
+        all_meta: list[dict[str, Any]] = []
         article_chunk_counts: dict[str, int] = {}
         skipped_fingerprint = 0
 
@@ -464,59 +457,85 @@ class QdrantVectorClient:
             pmc_id = art.get("pmc_id", "")
 
             if fingerprint in cached_fingerprints:
-                logging.debug(f"store_bulk_batch: skip (fingerprint) {pmc_id}")
+                logging.debug(f"embed_articles_bulk: skip (fingerprint) {pmc_id}")
                 skipped_fingerprint += 1
                 continue
 
             meta = {
-                "source":         art.get("title") or "Unknown",
-                "fingerprint":    fingerprint,
-                "source_db":      art.get("source_db", "pubmed_bulk"),
-                "source_id":      pmc_id,
-                "authors":        art.get("authors"),
+                "chunk_text": "",  # placeholder, bus užpildyta vėliau
+                "source": art.get("title") or "Unknown",
+                "fingerprint": fingerprint,
+                "source_db": art.get("source_db", "pubmed_bulk"),
+                "source_id": pmc_id,
+                "authors": art.get("authors"),
                 "published_date": art.get("published_date"),
-                "url":            art.get("url"),
+                "url": art.get("url"),
             }
 
-            start_idx = len(all_chunks)
             all_chunks.extend(raw_chunks)
-            all_meta.extend([meta] * len(raw_chunks))
+            all_meta.extend([meta.copy() for _ in raw_chunks])
             article_chunk_counts[pmc_id] = len(raw_chunks)
 
             logging.debug(
-                f"store_bulk_batch: queued [{pmc_id}] "
-                f"{meta['source'][:50]} → {len(raw_chunks)} chunks (offset {start_idx})"
+                f"embed_articles_bulk: queued [{pmc_id}] "
+                f"{meta['source'][:50]} → {len(raw_chunks)} chunks"
             )
 
         if skipped_fingerprint:
-            logging.info(f"store_bulk_batch: {skipped_fingerprint} straipsniai praleisti (fingerprint)")
+            logging.info(f"embed_articles_bulk: {skipped_fingerprint} straipsniai praleisti (fingerprint)")
 
         if not all_chunks:
-            logging.info("store_bulk_batch: nėra naujų chunk'ų indeksavimui")
-            return {}
+            logging.info("embed_articles_bulk: nėra naujų chunk'ų indeksavimui")
+            return [], [], [], {}
 
+        # 4. Embedding
         logging.info(
-            f"store_bulk_batch: embed {len(all_chunks)} chunk'ų "
+            f"embed_articles_bulk: embed {len(all_chunks)} chunk'ų "
             f"iš {len(article_chunk_counts)} straipsnių..."
         )
         t0 = __import__("time").monotonic()
         vectors = self._embed(all_chunks)
         elapsed = __import__("time").monotonic() - t0
-        logging.info(f"store_bulk_batch: embed baigtas [{elapsed:.1f}s]")
+        logging.info(f"embed_articles_bulk: embed baigtas [{elapsed:.1f}s]")
+
+        # 5. Užpildome chunk_text payload'uose
+        for i, chunk in enumerate(all_chunks):
+            all_meta[i]["chunk_text"] = chunk
+
+        log.info(f"EMBED FINISHED: took {elapsed:.1f}s")
+        return all_chunks, vectors, all_meta, article_chunk_counts
+
+    def upsert_points(
+        self,
+        chunks: list[str],
+        vectors: list[list[float]],
+        payloads: list[dict[str, Any]],
+    ) -> None:
+        """
+        Įrašo jau sugeneruotus vektorius į Qdrant (su lock'u).
+
+        Args:
+            chunks: Sąrašas chunk'ų tekstų (naudojamas log'ams)
+            vectors: Sąrašas vektorių
+            payloads: Sąrašas payload'ų
+        """
+        if not chunks or not vectors or not payloads:
+            logging.warning("upsert_points: tuščiai duomenys")
+            return
+
+        if len(chunks) != len(vectors) or len(chunks) != len(payloads):
+            logging.error(f"upsert_points: dydžių nesutapimas: chunks={len(chunks)}, vectors={len(vectors)}, payloads={len(payloads)}")
+            return
 
         points = [
             PointStruct(
-                id=str(__import__("uuid").uuid4()),
+                id=str(uuid.uuid4()),
                 vector=vectors[i],
-                payload={
-                    "chunk_text": all_chunks[i],
-                    **all_meta[i],
-                },
+                payload=payloads[i],
             )
-            for i in range(len(all_chunks))
+            for i in range(len(chunks))
         ]
 
-        # ── 6. Upsert SU lock'u — kuo trumpiau ───────────────────────────────
         with self._collection_lock:
             for i in range(0, len(points), _UPSERT_BATCH_SIZE):
                 self.client.upsert(
@@ -525,12 +544,66 @@ class QdrantVectorClient:
                     wait=False,
                 )
 
-        logging.info(
-            f"store_bulk_batch: upsert'inta {len(points)} chunk'ų "
-            f"({len(article_chunk_counts)} straipsnių)"
-        )
+        logging.info(f"upsert_points: upsert'inta {len(points)} chunk'ų")
 
+    def store_bulk_batch(
+        self,
+        articles: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        """
+        Indeksuoja kelis straipsnius vienu embed kvietimu (sinchroniškai).
+
+        Šis metodas paliktas dėl API suderinamumo. Naujam kodui rekomenduojama
+        naudoti embed_articles_bulk() + upsert_points() atskirai.
+        """
+        chunks, vectors, payloads, article_chunk_counts = self.embed_articles_bulk(articles)
+        if chunks:
+            self.upsert_points(chunks, vectors, payloads)
         return article_chunk_counts
+
+    def get_all_pmc_ids(self) -> set[str]:
+        """
+        Nuskaito visus source_id (pmc_id) iš Qdrant.
+
+        Returns:
+            Set'as unikalių PMC ID
+        """
+        indexed: set[str] = set()
+        offset = None
+        batch_num = 0
+        BATCH_SIZE = 10_000
+
+        with self._collection_lock:
+            while True:
+                try:
+                    results, next_offset = self.client.scroll(
+                        collection_name=COLLECTION,
+                        scroll_filter=Filter(must=[
+                            FieldCondition(key="source_db", match=MatchValue(value="pubmed_bulk"))
+                        ]),
+                        limit=BATCH_SIZE,
+                        offset=offset,
+                        with_payload=["source_id"],
+                        with_vectors=False,
+                    )
+                except Exception as e:
+                    logging.warning(f"Klaida skaitant Qdrant: {e}")
+                    break
+
+                for point in results:
+                    sid = (point.payload or {}).get("source_id", "")
+                    if sid:
+                        indexed.add(sid)
+
+                batch_num += 1
+                if batch_num % 10 == 0:
+                    logging.info(f"  ... nuskaityta {len(indexed)} ID ({batch_num} batchų)")
+
+                if next_offset is None:
+                    break
+                offset = next_offset
+
+        return indexed
 
     # ── Core search ────────────────────────────────────────────────────────────
 
