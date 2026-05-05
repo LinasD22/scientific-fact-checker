@@ -174,7 +174,7 @@ document.getElementById("authBtn").addEventListener("click", async () => {
     const data = await response.json();
 
     if (response.ok) {
-      chrome.storage.local.set({ token: data.access_token, userEmail: email }, () => {
+		chrome.storage.local.set({ token: data.access_token, userEmail: email, userId: data.user_id }, () => {
         alert("Success!");
         window.close();
       });
