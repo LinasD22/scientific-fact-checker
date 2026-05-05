@@ -164,6 +164,14 @@ const translations = {
     alreadyHaveAccount: "Already have an account?",
     createAccount: "Create Account",
     login: "Login",
+	tabCheck: "Check",
+    tabHistory: "History",
+    historyLoginPrompt: "Login to view your check history",
+    historyLoading: "Loading history…",
+    backToHistory: "Back to history",
+    retry: "Retry",
+    historyEmpty: "No checks yet — run your first fact check!",
+
   },
   lt: {
     title: "MediCheck",
@@ -208,6 +216,13 @@ const translations = {
     alreadyHaveAccount: "Jau turite paskyrą?",
     createAccount: "Sukurti paskyrą",
     login: "Prisijungti",
+	tabCheck: "Tikrinti",
+    tabHistory: "Istorija",
+    historyLoginPrompt: "Prisijunkite, kad matytumėte istorija",
+    historyLoading: "Kraunama istorija…",
+    backToHistory: "Grįžti į istoriją",
+    retry: "Bandyti dar",
+    historyEmpty: "Dar nėra patikrinimų — patikrinkite pirmą faktą!",
   },
 };
 
@@ -811,3 +826,262 @@ document.addEventListener("DOMContentLoaded", () => {
 
   updateUI();
 });
+
+// ── History API base URL ──────────────────────────────────────────────────────
+const HISTORY_API = "https://api.healthfactchecker.site/history";
+ 
+// ── Tab switching ─────────────────────────────────────────────────────────────
+const tabCheck   = document.getElementById("tabCheck");
+const tabHistory = document.getElementById("tabHistory");
+const checkView  = document.getElementById("checkView");
+const historyView = document.getElementById("historyView");
+ 
+tabCheck.addEventListener("click", () => {
+  tabCheck.classList.add("active");
+  tabHistory.classList.remove("active");
+  checkView.style.display = "block";
+  historyView.style.display = "none";
+  sendHeight();
+});
+ 
+tabHistory.addEventListener("click", () => {
+  tabHistory.classList.add("active");
+  tabCheck.classList.remove("active");
+  checkView.style.display = "none";
+  historyView.style.display = "block";
+  loadHistory();
+  sendHeight();
+});
+ 
+// ── Helper: show only one sub-state inside historyView ────────────────────────
+function showHistoryState(state) {
+  // state: "empty" | "loading" | "error" | "list" | "detail"
+  document.getElementById("historyEmpty").style.display  = state === "empty"   ? "flex" : "none";
+  document.getElementById("historyLoading").style.display = state === "loading" ? "flex" : "none";
+  document.getElementById("historyError").style.display  = state === "error"   ? "flex" : "none";
+  document.getElementById("historyList").style.display   = state === "list"    ? "block" : "none";
+  document.getElementById("historyDetail").style.display = state === "detail"  ? "block" : "none";
+  setTimeout(sendHeight, 80);
+}
+ 
+// ── Verdict dot color helper (reuses your existing getVerdictClass) ───────────
+function verdictDotClass(verdict) {
+  return getVerdictClass(verdict); // returns "true", "false", or "uncertain"
+}
+ 
+// ── Format date for display ───────────────────────────────────────────────────
+function formatHistoryDate(dateStr) {
+  if (!dateStr) return "";
+  try {
+    return new Date(dateStr).toLocaleDateString(currentLang === "lt" ? "lt-LT" : "en-GB", {
+      day: "numeric", month: "short", year: "numeric"
+    });
+  } catch {
+    return dateStr;
+  }
+}
+ 
+// ── Load history list ─────────────────────────────────────────────────────────
+async function loadHistory() {
+  showHistoryState("loading");
+ 
+  const { token, userId } = await chrome.storage.local.get(["token", "userId"]);
+ 
+  if (!token || !userId) {
+    showHistoryState("empty");
+    // wire up the login button inside the empty state
+    document.getElementById("historyLoginBtn").onclick = () => {
+      chrome.runtime.sendMessage({ type: "OPEN_AUTH" });
+    };
+    return;
+  }
+ 
+  try {
+    const res = await fetch(`${HISTORY_API}/user/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+ 
+    if (!res.ok) {
+      throw new Error(`Server error ${res.status}`);
+    }
+ 
+    const data = await res.json();
+    const queries = data.queries || [];
+ 
+    const container = document.getElementById("historyItems");
+    container.innerHTML = "";
+ 
+    if (queries.length === 0) {
+      // Show empty state with a different message (logged in but no checks yet)
+      const emptyIcon = document.querySelector(".history-empty-icon");
+      const emptyText = document.querySelector(".history-empty-text");
+      if (emptyIcon) emptyIcon.textContent = "📋";
+      if (emptyText) emptyText.textContent = t("historyEmpty");
+      document.getElementById("historyLoginBtn").style.display = "none";
+      showHistoryState("empty");
+      return;
+    }
+ 
+    queries.forEach(q => {
+      const dotClass = verdictDotClass(q.final_verdict || "unverifiable");
+      const verdictLabel = translateVerdict(q.final_verdict || "unverifiable");
+      const dateLabel = formatHistoryDate(q.claim_date);
+ 
+      const item = document.createElement("div");
+      item.className = "history-item";
+      item.innerHTML = `
+        <div class="history-item-verdict ${dotClass}"></div>
+        <div class="history-item-body">
+          <div class="history-item-claim">${escapeHtml(q.claim)}</div>
+          <div class="history-item-meta">
+            <span>${verdictLabel}</span>
+            <span class="history-item-meta-dot"></span>
+            <span>${dateLabel}</span>
+          </div>
+        </div>
+        <span class="history-item-chevron">›</span>
+      `;
+      item.addEventListener("click", () => loadHistoryDetail(userId, q.query_id, token, q.claim));
+      container.appendChild(item);
+    });
+ 
+    showHistoryState("list");
+ 
+  } catch (err) {
+    console.error("History load failed:", err);
+    document.getElementById("historyErrorMsg").textContent =
+      "Could not load history. " + (err.message || "");
+    document.getElementById("historyRetryBtn").onclick = loadHistory;
+    showHistoryState("error");
+  }
+}
+ 
+// ── Load detail for a single history item ─────────────────────────────────────
+async function loadHistoryDetail(userId, queryId, token, claimText) {
+  showHistoryState("loading");
+ 
+  try {
+    const res = await fetch(`${HISTORY_API}/user/${userId}/query/${queryId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+ 
+    if (!res.ok) {
+      throw new Error(`Server error ${res.status}`);
+    }
+ 
+    const data = await res.json();
+ 
+    // The detail response matches the same shape as a live fact-check response
+    // so we can render it with your existing helpers.
+    renderHistoryDetail(data, claimText);
+ 
+  } catch (err) {
+    console.error("History detail failed:", err);
+    document.getElementById("historyErrorMsg").textContent =
+      "Could not load details. " + (err.message || "");
+    document.getElementById("historyRetryBtn").onclick = () =>
+      loadHistoryDetail(userId, queryId, token, claimText);
+    showHistoryState("error");
+  }
+}
+ 
+// ── Render a history detail using the same card HTML as live results ──────────
+function renderHistoryDetail(response, claimText) {
+  const detailContent = document.getElementById("historyDetailContent");
+ 
+  // Build the same card structure your live result uses
+  const vClass = getVerdictClass(response.final_verdict || "unverifiable");
+  const verdictLabel = translateVerdict(response.final_verdict || "unverifiable");
+  const scorePercent = Math.round((response.facts?.[0]?.agreement_score || 0) * 100);
+  const explanation = currentLang === "lt"
+    ? (response.facts?.[0]?.summary_lithuanian || response.facts?.[0]?.summary || "")
+    : (response.facts?.[0]?.summary || "");
+ 
+  // Build articles HTML from the nested facts structure
+  const articles = response.facts?.flatMap(f => f.articles_used || []) || [];
+  const articlesHtml = articles.length > 0
+    ? articles.map(a => `
+        <div class="article-item">
+          <a href="${escapeHtml(a.url)}" target="_blank" class="article-title">${escapeHtml(a.title || "")}</a>
+          <div class="article-meta">${escapeHtml(a.source || "")} · ${a.published_date || t("dateUnknown")}</div>
+        </div>`).join("")
+    : `<p class="article-meta">${t("noArticles")}</p>`;
+ 
+  detailContent.innerHTML = `
+    <div class="resultCard" style="margin-top: 0;">
+      <div style="font-size:12px; color:var(--text-muted); text-align:left; margin-bottom:12px; font-style:italic; line-height:1.4;">
+        "${escapeHtml(claimText || "")}"
+      </div>
+ 
+      <div class="scoreRingContainer">
+        <svg class="progressRing" width="120" height="120">
+          <circle class="ringTrack" cx="60" cy="60" r="52"></circle>
+          <circle class="ringProgress" id="historyRingProgress" cx="60" cy="60" r="52"></circle>
+        </svg>
+        <div class="scoreCenter">
+          <span id="historyScoreValue">0</span>
+          <span class="scoreLabel">${t("confidence")}</span>
+        </div>
+      </div>
+ 
+      <div class="resultHeader">
+        <div class="verdict ${vClass}">${verdictLabel}</div>
+      </div>
+ 
+      <div class="explanation">${escapeHtml(explanation)}</div>
+ 
+      <hr class="divider">
+ 
+      <details class="evidence-section">
+        <summary>
+          <span>${t("sourcesUsedPrefix")}</span>: <span>${articles.length}</span>
+        </summary>
+        <div class="articles-container">${articlesHtml}</div>
+      </details>
+    </div>
+  `;
+ 
+  showHistoryState("detail");
+ 
+  // Animate the score ring (same logic as your main updateScoreRing)
+  const ring = detailContent.querySelector("#historyRingProgress");
+  const scoreEl = detailContent.querySelector("#historyScoreValue");
+  if (ring && scoreEl) {
+    const radius = 52;
+    const circumference = 2 * Math.PI * radius;
+    ring.style.strokeDasharray = `${circumference} ${circumference}`;
+    ring.style.strokeDashoffset = circumference;
+ 
+    if (scorePercent >= 70)      ring.style.stroke = "var(--score-high)";
+    else if (scorePercent >= 40) ring.style.stroke = "var(--score-mid)";
+    else                         ring.style.stroke = "var(--score-low)";
+ 
+    const offset = circumference - (scorePercent / 100) * circumference;
+    // Small timeout so the CSS transition fires after the element is in the DOM
+    setTimeout(() => {
+      ring.style.strokeDashoffset = offset;
+    }, 50);
+ 
+    let current = 0;
+    const interval = setInterval(() => {
+      current += Math.ceil(scorePercent / 20) || 1;
+      if (current >= scorePercent) { current = scorePercent; clearInterval(interval); }
+      scoreEl.textContent = current;
+    }, 30);
+  }
+}
+ 
+// ── Back button ───────────────────────────────────────────────────────────────
+document.getElementById("historyBackBtn").addEventListener("click", () => {
+  showHistoryState("list");
+});
+ 
+// ── Simple HTML escape to avoid XSS from server data ─────────────────────────
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}

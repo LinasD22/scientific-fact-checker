@@ -11,10 +11,10 @@
     <header>
       <div class="logo-circle">⚕️</div>
       <h1 data-i18n="appTitle">MediCheck</h1>
-	  <button id="languageToggle" style="width: auto; margin: 0; padding: 5px; background: var(--primary); color: white; border-radius: 4px; box-shadow: none; font-size: 16px; margin-left: 8px;" title="Switch language">EN</button>
-	  <button id="themeToggle" style="width: auto; margin: 0; padding: 5px; background: none; box-shadow: none; font-size: 16px; margin-left: auto; margin-right: 2px;">
-		🌙
-	  </button>
+      <button id="languageToggle" style="width: auto; margin: 0; padding: 5px; background: var(--primary); color: white; border-radius: 4px; box-shadow: none; font-size: 16px; margin-left: 8px;" title="Switch language">EN</button>
+      <button id="themeToggle" style="width: auto; margin: 0; padding: 5px; background: none; box-shadow: none; font-size: 16px; margin-left: auto; margin-right: 2px;">
+        🌙
+      </button>
       <button id="viewModeBtn" title="Switch to floating panel" style="background:none; color:#64748b; width:auto; margin:0; padding:5px; box-shadow:none; font-size:15px; flex-shrink:0;">⇔</button>
       <button id="closePanelBtn" style="background:none; color:#64748b; width:auto; margin:0; padding:5px; box-shadow:none; flex-shrink:0;">✕</button>
     </header>
@@ -24,74 +24,122 @@
       <button id="authBtnAction" style="font-size: 10px;" data-i18n="loginOrRegister">Login or Register</button>
     </div>
 
-    <div class="input-section">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-    <label style="font-size: 12px; color: var(--text-muted); font-weight: 600;">CLAIM</label>
-    <button id="clearBtn" style="background:none; color:var(--primary); width:auto; margin:0; padding:0; box-shadow:none; font-size:12px; text-decoration:underline;" data-i18n="clear">Clear</button>
-  </div>
-  <textarea
-    id="claimInput"
-    data-i18n-placeholder="claimPlaceholder"
-    placeholder="Paste a health claim to verify..."
-  ></textarea>
-
-      <!-- ── Image OCR drop zone ───────────────────────────────────────── -->
-  <div id="ocrDropZone" class="ocr-drop-zone">
-    <input type="file" id="ocrFileInput" accept="image/png,image/jpeg" style="display:none;" />
-    <span id="ocrDropLabel" class="ocr-drop-label">
-    🖼️ Drop an image or <span class="ocr-browse-link" id="ocrBrowseBtn">browse</span>
-    </span>
-    <span id="ocrFileName" class="ocr-file-name" style="display:none;"></span>
-    <span id="ocrSpinner" class="ocr-spinner" style="display:none;">⏳ Extracting text…</span>
-    <span id="ocrError" class="ocr-error" style="display:none;"></span>
-  </div>
-      <!-- ──────────────────────────────────────────────────────────────── -->
-
-  <button id="checkBtn">
-    <span id="btnText" data-i18n="checkFact">Check Fact</span>
-  </button>
-</div>
-
-    <div id="resultCard" class="resultCard hidden">
-  <div class="scoreRingContainer">
-    <svg class="progressRing" width="120" height="120">
-      <circle class="ringTrack" cx="60" cy="60" r="52"></circle>
-      <circle id="ringProgress" class="ringProgress" cx="60" cy="60" r="52"></circle>
-    </svg>
-    <div class="scoreCenter">
-      <span id="scoreValue">0</span>
-      <span class="scoreLabel" data-i18n="confidence">Confidence</span>
+    <!-- ── Tab Bar ──────────────────────────────────────────────── -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tabCheck" data-i18n="tabCheck">Check</button>
+      <button class="tab-btn"        id="tabHistory" data-i18n="tabHistory">History</button>
     </div>
-  </div>
 
-  <div class="resultHeader">
-    <div id="finalVerdict" class="verdict"></div>
-  </div>
+    <!-- ── Check View ───────────────────────────────────────────── -->
+    <div id="checkView">
 
-  <div id="finalExplanation" class="explanation"></div>
+      <div class="input-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+          <label style="font-size: 12px; color: var(--text-muted); font-weight: 600;">CLAIM</label>
+          <button id="clearBtn" style="background:none; color:var(--primary); width:auto; margin:0; padding:0; box-shadow:none; font-size:12px; text-decoration:underline;" data-i18n="clear">Clear</button>
+        </div>
+        <textarea
+          id="claimInput"
+          data-i18n-placeholder="claimPlaceholder"
+          placeholder="Paste a health claim to verify..."
+        ></textarea>
 
-  <div id="individualFactsContainer" style="display: none;">
-    <hr class="divider">
-    <div style="font-size: 13px; font-weight: 700; text-align: left; margin-bottom: 10px;" data-i18n="individualClaims">Individual Claims</div>
-    <div id="individualFactsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
-  </div>
+        <!-- ── Image OCR drop zone ─────────────────────────────── -->
+        <div id="ocrDropZone" class="ocr-drop-zone">
+          <input type="file" id="ocrFileInput" accept="image/png,image/jpeg" style="display:none;" />
+          <span id="ocrDropLabel" class="ocr-drop-label">
+            🖼️ Drop an image or <span class="ocr-browse-link" id="ocrBrowseBtn">browse</span>
+          </span>
+          <span id="ocrFileName" class="ocr-file-name" style="display:none;"></span>
+          <span id="ocrSpinner" class="ocr-spinner" style="display:none;">⏳ Extracting text…</span>
+          <span id="ocrError" class="ocr-error" style="display:none;"></span>
+        </div>
+        <!-- ────────────────────────────────────────────────────── -->
 
-  <hr class="divider">
+        <button id="checkBtn">
+          <span id="btnText" data-i18n="checkFact">Check Fact</span>
+        </button>
+      </div>
 
-  <details class="evidence-section">
-    <summary><span data-i18n="sourcesUsedPrefix">Sources Used</span>: <span id="sourceCount">0</span></summary>
-    <div id="articlesList" class="articles-container"></div>
-    <div class="section-header" data-i18n="evidenceBySource">Evidence by Source</div>
-    <div id="evidenceList"></div>
-  </details>
+      <div id="resultCard" class="resultCard hidden">
+        <div class="scoreRingContainer">
+          <svg class="progressRing" width="120" height="120">
+            <circle class="ringTrack" cx="60" cy="60" r="52"></circle>
+            <circle id="ringProgress" class="ringProgress" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="scoreCenter">
+            <span id="scoreValue">0</span>
+            <span class="scoreLabel" data-i18n="confidence">Confidence</span>
+          </div>
+        </div>
 
+        <div class="resultHeader">
+          <div id="finalVerdict" class="verdict"></div>
+        </div>
 
+        <div id="finalExplanation" class="explanation"></div>
 
-  <details class="debug-section">
-    <summary data-i18n="rawJsonResponse">Raw JSON Response</summary>
-    <pre id="rawResponse"></pre>
-  </details>
-</div>
+        <div id="individualFactsContainer" style="display: none;">
+          <hr class="divider">
+          <div style="font-size: 13px; font-weight: 700; text-align: left; margin-bottom: 10px;" data-i18n="individualClaims">Individual Claims</div>
+          <div id="individualFactsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        </div>
+
+        <hr class="divider">
+
+        <details class="evidence-section">
+          <summary><span data-i18n="sourcesUsedPrefix">Sources Used</span>: <span id="sourceCount">0</span></summary>
+          <div id="articlesList" class="articles-container"></div>
+          <div class="section-header" data-i18n="evidenceBySource">Evidence by Source</div>
+          <div id="evidenceList"></div>
+        </details>
+
+        <details class="debug-section">
+          <summary data-i18n="rawJsonResponse">Raw JSON Response</summary>
+          <pre id="rawResponse"></pre>
+        </details>
+      </div>
+
+    </div>
+    <!-- end #checkView -->
+
+    <!-- ── History View ──────────────────────────────────────────── -->
+    <div id="historyView" style="display:none;">
+
+      <!-- Empty / not-logged-in state -->
+      <div id="historyEmpty" class="history-empty" style="display:none;">
+        <div class="history-empty-icon">🔒</div>
+        <p class="history-empty-text" data-i18n="historyLoginPrompt">Login to view your check history</p>
+        <button id="historyLoginBtn" style="width:auto; padding: 8px 20px; margin:0;" data-i18n="loginOrRegister">Login or Register</button>
+      </div>
+
+      <!-- Loading state -->
+      <div id="historyLoading" class="history-loading" style="display:none;">
+        <span class="ocr-spinner" style="display:inline;">⏳</span>
+        <span style="font-size:13px; color:var(--text-muted); margin-left:6px;" data-i18n="historyLoading">Loading history…</span>
+      </div>
+
+      <!-- Error state -->
+      <div id="historyError" class="history-error" style="display:none;">
+        <p id="historyErrorMsg" style="font-size:13px; color: var(--score-low); margin:0;"></p>
+        <button id="historyRetryBtn" style="width:auto; padding:6px 16px; margin-top:10px;" data-i18n="retry">Retry</button>
+      </div>
+
+      <!-- History list -->
+      <div id="historyList" style="display:none;">
+        <div id="historyItems"></div>
+      </div>
+
+      <!-- Detail view -->
+      <div id="historyDetail" style="display:none;">
+        <button id="historyBackBtn" class="history-back-btn">
+          ← <span data-i18n="backToHistory">Back to history</span>
+        </button>
+        <div id="historyDetailContent"></div>
+      </div>
+
+    </div>
+    <!-- end #historyView -->
 
   </div>
   <script src="popup.js"></script>
