@@ -46,10 +46,10 @@ from qdrant_client.models import (
 
 from MeshParser import log
 
-os.environ.setdefault("OMP_NUM_THREADS", "16")
+#os.environ.setdefault("OMP_NUM_THREADS", "16")
 os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
-os.environ.setdefault("ONNXRUNTIME_INTER_OP_NUM_THREADS", "16")
-os.environ.setdefault("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
+#os.environ.setdefault("ONNXRUNTIME_INTER_OP_NUM_THREADS", "16")
+#os.environ.setdefault("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
 
 from fastembed import TextEmbedding
 from sentence_transformers import CrossEncoder
@@ -89,7 +89,7 @@ class QdrantVectorClient:
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
         )
         self.min_score        = float(os.getenv("QDRANT_MIN_SCORE",        "0.65"))
-        self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE",      "-2.0"))
+        self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE",      "-4.0"))
         self.global_min_score = float(os.getenv("QDRANT_GLOBAL_MIN_SCORE", "0.55"))
         self.chunk_size       = int(os.getenv("QDRANT_CHUNK_SIZE",         "800"))
         self.chunk_overlap    = int(os.getenv("QDRANT_CHUNK_OVERLAP",      "50"))
@@ -131,14 +131,12 @@ class QdrantVectorClient:
     # ── Vector size probe ──────────────────────────────────────────────────────
 
     def _probe_vector_size(self) -> int:
-        """Probe vector size - no lock needed, called during init."""
         vec = list(self.model.embed(["probe"]))[0]
         return len(vec)
 
     # ── Collection setup ───────────────────────────────────────────────────────
 
     def _ensure_collection(self) -> None:
-        """Ensure collection exists - no lock needed, called during init."""
         existing = [c.name for c in self.client.get_collections().collections]
         if COLLECTION not in existing:
             self.client.create_collection(
@@ -166,6 +164,7 @@ class QdrantVectorClient:
                     max_optimization_threads=1,
                     flush_interval_sec=30,
                 ),
+                on_disk_payload=True,
             )
             for field in ("fingerprint", "source", "source_db", "source_id"):
                 self.client.create_payload_index(
@@ -216,17 +215,13 @@ class QdrantVectorClient:
     def _batch_is_cached(self, fingerprints: list[str]) -> set[str]:
         """
         Batch fingerprint tikrinimas — VIENAS Qdrant scroll kvietimas.
-
-        Vietoj N atskirų scroll'ų (po vieną per straipsnį), siunčiamas
-        vienas should filtras su visais fingerprint'ais iš karto.
         Grąžina set'ą fingerprint'ų, kurie jau yra kešuoti.
         """
         if not fingerprints:
             return set()
 
         cached: set[str] = set()
-        # Skaidomame į batch'us — Qdrant should filtras veikia gerai iki ~500
-        _BATCH = 500
+        _BATCH = 200
         for i in range(0, len(fingerprints), _BATCH):
             batch = fingerprints[i : i + _BATCH]
             try:
@@ -254,7 +249,6 @@ class QdrantVectorClient:
     # ── Embedding (ONNX / fastembed) ───────────────────────────────────────────
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed texts - no lock needed, doesn't modify Qdrant."""
         results: list[list[float]] = []
         for i in range(0, len(texts), _EMBED_BATCH_SIZE):
             batch = texts[i : i + _EMBED_BATCH_SIZE]
@@ -414,9 +408,7 @@ class QdrantVectorClient:
         log.info(f"EMBED STARTING: {articles[0].get('pmc_id', 'unknown')} at {time.time()}")
         """
         Atlieka tik chunk'inimą ir embedding'ą (be upsert).
-
-        Šis metodas yra CPU-intensive ir gali būti kviečiamas lygiagrečiai
-        skirtinguose thread'uose. Grąžina:
+        Grąžina:
             - chunks: sąrašas chunk'ų tekstų
             - vectors: sąrašas vektorių
             - payloads: sąrašas payload'ų (metaduomenų)
