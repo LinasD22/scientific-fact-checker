@@ -99,6 +99,7 @@ class QdrantVectorClient:
         self.model = TextEmbedding(
             model_name=self.model_name,
             providers=["CPUExecutionProvider"],
+            cuda=False,
         )
         self.vector_size = self._probe_vector_size()
         logging.info(
@@ -110,6 +111,7 @@ class QdrantVectorClient:
         self.reranker = CrossEncoder(
             self.reranker_model_name,
             device="cpu",
+            backend="onnx"
         )
         logging.info("Reranker ready.")
 
