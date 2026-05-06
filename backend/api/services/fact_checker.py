@@ -332,9 +332,9 @@ class FactCheckerService:
         self,
         original_claim: str,
         query: str | None = None,
-        limit: int = 20,
-        global_search_threshold: float = 0.72,
-        global_min_results: int = 10,
+        limit: int = 10,
+        global_search_threshold: float = 0.6,
+        global_min_results: int = 5,
     ) -> FactCheckResult:
         search_query = query or original_claim
 
@@ -408,7 +408,7 @@ class FactCheckerService:
             )
 
         logging.info(
-            f"Global search rado tik {len(global_snippets)} — "
+            f"Global search rado tik {len(global_snippets)}, min result threshold {global_min_results} — "
             f"fallback į lazy indexing."
         )
 

@@ -3,10 +3,15 @@ API endpoints for the fact checker plugin.
 """
 
 import asyncio
+import base64
 import logging
+import os
 from typing import Annotated
+
+from mistralai import Mistral
+
 from api.utils.ai_calls import extract_individual_facts, translate_to_english, translate_from_english
-from fastapi import Body, APIRouter, HTTPException, status
+from fastapi import Body, APIRouter, HTTPException, status, UploadFile, File
 from fastapi.responses import JSONResponse
 from datetime import date, datetime, timezone
 from typing import Annotated, Any

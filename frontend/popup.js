@@ -17,8 +17,8 @@ const ocrFileName   = document.getElementById("ocrFileName");
 const ocrSpinner    = document.getElementById("ocrSpinner");
 const ocrError      = document.getElementById("ocrError");
 
-const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
-// const OCR_API_URL = //"http://localhost:8000/api/fact-check/ocr"; // local dev
+//const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
+ const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
 
 // ── OCR helpers ───────────────────────────────────────────────────────────────
 function ocrShowState(state, message = "") {
@@ -47,39 +47,40 @@ async function runOCR(file) {
     return;
   }
 
-  ocrShowState("file", file.name);
+  ocrShowState("loading");
   ocrDropZone.classList.add("ocr-loading");
-  ocrSpinner.style.display = "inline";
-  ocrFileName.style.display = "none";
 
   try {
-    const formData = new FormData();
-    formData.append("file", file);
+    // Convert file to base64 so it can be passed via chrome.runtime.sendMessage
+    // (FormData is not serialisable across the message channel)
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
 
-    const response = await fetch(OCR_API_URL, {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${response.status}`);
-    }
-
-    const data = await response.json();
-    const text = (data.text || "").trim();
-
-    if (!text) {
-      ocrShowState("error", "No text found in image.");
-    } else {
-      claimInput.value = text;
-      ocrShowState("file", file.name);
-      sendHeight();
-    }
+    chrome.runtime.sendMessage(
+      { type: "OCR_REQUEST", data: base64, mimeType: file.type, fileName: file.name },
+      (response) => {
+        ocrDropZone.classList.remove("ocr-loading");
+        if (chrome.runtime.lastError) {
+          ocrShowState("error", "Extension error. Please reload the page.");
+          return;
+        }
+        if (response && response.error) {
+          ocrShowState("error", response.error);
+        } else if (response && response.text) {
+          claimInput.value = response.text;
+          ocrShowState("file", file.name);
+          sendHeight();
+        } else {
+          ocrShowState("error", "No text found in image.");
+        }
+      }
+    );
   } catch (err) {
-    ocrShowState("error", err.message || "OCR failed. Please try again.");
-  } finally {
     ocrDropZone.classList.remove("ocr-loading");
+    ocrShowState("error", err.message || "OCR failed. Please try again.");
   }
 }
 
@@ -519,6 +520,8 @@ function autoCheck() {
           if (scorePercent >= 70) scoreColorClass = "score-high";
           else if (scorePercent < 40) scoreColorClass = "score-low";
 
+          const snippetsHtml = generateSnippetsHtml(fact.snippets || []);
+
           factDiv.innerHTML = `
             <div class="fact-top-row">
               <div class="badge-stack">
@@ -534,6 +537,7 @@ function autoCheck() {
             </div>
             <div class="fact-explanation">${getLocalizedExplanation(fact)}</div>
             <div class="fact-sources-list">${sourcesHtml}</div>
+            ${snippetsHtml ? `<div class="fact-snippets">${snippetsHtml}</div>` : ""}
           `;
           factsList.appendChild(factDiv);
         });
@@ -566,18 +570,17 @@ function autoCheck() {
           response.individual_results.forEach((r) => {
             const verdict = r.result || "unverifiable";
             const verdictClass = getVerdictClass(verdict);
+            const explanation = currentLang === 'lt' ? (r.explanation_lt || r.explanation || "") : (r.explanation || "");
 
             const item = document.createElement("div");
             item.className = "evidence-item";
             item.innerHTML = `
               <div class="evidence-header">
                 <span class="evidence-title">${r.source_title || t("unknownSource")}</span>
+                <span class="verdict ${verdictClass}" data-verdict-key="${verdict}">${translateVerdict(verdict)}</span>
               </div>
-              <div class="evidence-verdict-wrapper">
-                <span class="verdict ${verdictClass}" data-verdict-key="${verdict}" style="font-size:11px; padding:2px 6px; display: inline-block;">${translateVerdict(verdict)}</span>
-              </div>
-              <div class="evidence-snippet">"${r.source_text || ""}"</div>
-               <div class="evidence-explanation">${currentLang === 'lt' ? (r.explanation_lt || r.explanation || "") : (r.explanation || "")}</div>
+              ${r.source_text ? `<blockquote class="evidence-snippet">${r.source_text}</blockquote>` : ""}
+              ${explanation ? `<div class="evidence-explanation">${explanation}</div>` : ""}
               ${r.supporting_evidence?.length ? `<div class="evidence-tag support">✓ ${r.supporting_evidence[0]}</div>` : ""}
               ${r.contradicting_evidence?.length ? `<div class="evidence-tag contra">✗ ${r.contradicting_evidence[0]}</div>` : ""}
             `;
@@ -617,6 +620,38 @@ function getVerdictClass(verdict) {
   return "uncertain";
 }
 
+function generateSnippetsHtml(snippets) {
+  if (!snippets || snippets.length === 0) return "";
+  const items = snippets.map(s => {
+    const verdict = s.result || "unverifiable";
+    const vClass = getVerdictClass(verdict);
+    const text = s.source_text || "";
+    const title = s.source_title || t("unknownSource");
+    const explanation = currentLang === "lt" ? (s.explanation_lt || s.explanation || "") : (s.explanation || "");
+    return `
+      <div class="evidence-item">
+        <div class="evidence-header">
+          <span class="evidence-title">${title}</span>
+          <span class="verdict ${vClass}" data-verdict-key="${verdict}">${translateVerdict(verdict)}</span>
+        </div>
+        ${text ? `<blockquote class="evidence-snippet">${text}</blockquote>` : ""}
+        ${explanation ? `<div class="evidence-explanation">${explanation}</div>` : ""}
+        ${s.supporting_evidence?.length ? `<div class="evidence-tag support">✓ ${s.supporting_evidence[0]}</div>` : ""}
+        ${s.contradicting_evidence?.length ? `<div class="evidence-tag contra">✗ ${s.contradicting_evidence[0]}</div>` : ""}
+      </div>
+    `;
+  }).join("");
+  return `
+    <details class="fact-snippets-details">
+      <summary class="fact-snippets-summary">
+        <span>${t("evidenceBySource")}</span>
+        <span class="fact-snippets-count">${snippets.length}</span>
+      </summary>
+      <div class="fact-snippets-body">${items}</div>
+    </details>
+  `;
+}
+
 function generateSourcesHtml(sources) {
   if (!sources || sources.length === 0)
     return `<span class="no-sources">${t("noSourcesFound")}</span>`;
@@ -649,7 +684,10 @@ function updateArticlesList(articles) {
 }
 
 function sendHeight() {
-  const height = document.body.scrollHeight;
+  // Use the container's scrollHeight (the true content height, unclipped)
+  // so that float-mode can resize to fit all content without scrolling.
+  const containerEl = document.querySelector(".container");
+  const height = containerEl ? containerEl.scrollHeight + 16 : document.body.scrollHeight;
   window.parent.postMessage({ type: "RESIZE_PANEL", height: height }, "*");
 }
 
@@ -754,6 +792,24 @@ document.getElementById("closePanelBtn").addEventListener("click", () => {
   window.parent.postMessage({ type: "CLOSE_PANEL" }, "*");
 });
 
+document.getElementById("viewModeBtn").addEventListener("click", () => {
+  window.parent.postMessage({ type: "TOGGLE_PANEL_MODE" }, "*");
+});
+
+// Listen for mode changes from parent (panel.js) to update button tooltip
+window.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "MODE_CHANGED") {
+    const btn = document.getElementById("viewModeBtn");
+    if (btn) {
+      btn.textContent = "⇔";
+      btn.title = event.data.mode === "side" ? "Switch to floating panel" : "Dock to side panel";
+    }
+    // Toggle float-mode so CSS can remove max-height clamping
+    document.body.classList.toggle("float-mode", event.data.mode === "float");
+    sendHeight();
+  }
+});
+
 // ── Auth Button ───────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   authBtnAction.addEventListener("click", () => {
@@ -772,7 +828,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ── History API base URL ──────────────────────────────────────────────────────
-const HISTORY_API = "https://api.healthfactchecker.site/history";
+//const HISTORY_API = "https://api.healthfactchecker.site/history";
+const HISTORY_API = "http://localhost:8000/history";
  
 // ── Tab switching ─────────────────────────────────────────────────────────────
 const tabCheck   = document.getElementById("tabCheck");

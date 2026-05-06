@@ -36,6 +36,13 @@ body {
   transition: background 0.3s ease, color 0.3s ease;
 }
 
+/* In float mode the outer container controls the visible area.
+   Remove the internal max-height so scrollHeight reflects true content. */
+body.float-mode .container {
+  max-height: none;
+  overflow-y: visible;
+}
+
 .container {
   padding: 16px;
   padding-right: 12px;
@@ -53,7 +60,6 @@ header {
   align-items: center;
   gap: 12px;
   margin-bottom: 4px; /* Shrunk gap below title */
-  padding-right: 35px; /* Room for the X button */
 }
 
 .logo-circle {
@@ -553,7 +559,6 @@ textarea, .resultCard, .auth-card {
 
 .container::-webkit-scrollbar-track {
   background: transparent;
-  margin-top: 45px; /* Starts below the X button */
   margin-bottom: 10px;
 }
 
@@ -577,25 +582,44 @@ body.dark-mode .container::-webkit-scrollbar-thumb {
 #closePanelBtn {
   background: none;
   color: var(--text-muted);
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   margin: 0;
-  position: fixed;
-  top: 10px;
-  right: 10px;
   box-shadow: none;
-  z-index: 1000;
   cursor: pointer;
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   justify-content: center;
   align-items: center;
-  background: var(--bg-color);
   border-radius: 50%;
+  transition: color 0.2s ease;
+  flex-shrink: 0;
 }
 
 #closePanelBtn:hover {
-  color: #ef4444; /* Turns red on hover for a clearer "close" action */
+  color: #ef4444;
+}
+
+#viewModeBtn {
+  background: none;
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  box-shadow: none;
+  cursor: pointer;
+  font-size: 15px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 6px;
+  transition: color 0.2s ease, background 0.2s ease;
+  flex-shrink: 0;
+}
+
+#viewModeBtn:hover {
+  color: var(--primary);
+  background: rgba(59, 130, 246, 0.08);
 }
 
 #languageToggle {
@@ -625,9 +649,9 @@ body.dark-mode .container::-webkit-scrollbar-thumb {
   box-shadow: none;
   font-size: 18px;
   cursor: pointer;
-  /* Push it to the right, but leave room for the X */
+  /* Push it to the right, leaving a small gap before the view-mode and close buttons */
   margin-left: auto;
-  margin-right: 15px;
+  margin-right: 2px;
   transition: transform 0.2s ease;
 }
 
@@ -830,6 +854,92 @@ body.dark-mode .container::-webkit-scrollbar-thumb {
   50%       { opacity: 0.45; }
 }
 
+/* ── Evidence items (single-fact & multi-fact snippets) ─────────────────── */
+.evidence-item {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.evidence-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.evidence-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence-header .verdict {
+  font-size: 9px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+blockquote.evidence-snippet {
+  margin: 0 0 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--primary);
+  background: rgba(59, 130, 246, 0.06);
+  border-radius: 0 6px 6px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.evidence-explanation {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-bottom: 4px;
+}
+
+.evidence-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-top: 4px;
+  margin-right: 4px;
+}
+
+.evidence-tag.support {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--score-high);
+}
+
+.evidence-tag.contra {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--score-low);
+}
+
+/* ── Multi-fact snippets section ────────────────────────────────────────── */
+.fact-snippets {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.fact-snippets .evidence-item {
+  margin-bottom: 6px;
+}
 .tab-bar {
   display: flex;
   gap: 4px;

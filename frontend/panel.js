@@ -42,6 +42,13 @@ function injectPanel(initialMode, initialWidth) {
   container.appendChild(modeTab);
   document.body.appendChild(container);
 
+  // Notify iframe of current mode as soon as it finishes loading
+  iframe.addEventListener("load", () => {
+    try {
+      iframe.contentWindow.postMessage({ type: "MODE_CHANGED", mode: currentMode }, "*");
+    } catch (e) {}
+  });
+
   // ── 2. Resize handle — completely independent fixed element ───────────────
   //    Lives directly on <body>, never clipped by the container.
   const handle = document.createElement("div");
@@ -69,7 +76,7 @@ function injectPanel(initialMode, initialWidth) {
   document.head.appendChild(highlightStyle);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function clampWidth(w) { return Math.max(280, Math.min(780, w)); }
+  function clampWidth(w) { return Math.max(280, Math.min(1400, w)); }
 
   function setPagePush(px) {
     // Push the entire page left so the panel never covers content.
@@ -92,6 +99,10 @@ function injectPanel(initialMode, initialWidth) {
     currentMode = mode;
     if (!skipSave) chrome.storage.local.set({ panelMode: mode });
     renderStyles();
+    // Notify the iframe so its internal viewModeBtn can update its icon
+    try {
+      iframe.contentWindow.postMessage({ type: "MODE_CHANGED", mode: currentMode }, "*");
+    } catch (e) {}
   }
 
   function renderStyles() {
@@ -181,7 +192,7 @@ function injectPanel(initialMode, initialWidth) {
         }
       `;
 
-      modeTab.textContent = "▶";
+      modeTab.textContent = "⇔";
       modeTab.title = "Switch to floating panel";
       handle.style.display = "flex";
 
@@ -189,21 +200,24 @@ function injectPanel(initialMode, initialWidth) {
       // ── FLOAT MODE ────────────────────────────────────────────────────────
       clearPagePush();
 
+      // Clear any inline width that may have been set during panel resize
+      container.style.removeProperty("width");
+
       panelStyle.textContent = `
         #factCheckerContainer {
           position: fixed;
           top: 20px;
           right: 20px;
-          width: 360px;
+          width: 360px !important;
           min-height: 180px;
-          max-height: 600px;
+          max-height: 90vh;
           z-index: 2147483647;
           background: white;
           border-radius: 16px;
           overflow: hidden;
           box-shadow: 0 10px 25px rgba(0,0,0,0.2);
           border: 1px solid #e2e8f0;
-          transition: height 0.3s ease-in-out;
+          transition: height 0.2s ease-in-out;
           display: block;
         }
         #factCheckerIframe {
@@ -213,27 +227,7 @@ function injectPanel(initialMode, initialWidth) {
           border: none;
           display: block;
         }
-        #factCheckerModeTab {
-          position: absolute;
-          bottom: 10px;
-          right: 10px;
-          width: 28px;
-          height: 28px;
-          padding: 0;
-          background: #3b82f6;
-          border: none;
-          border-radius: 7px;
-          cursor: pointer;
-          color: #fff;
-          font-size: 13px;
-          box-shadow: 0 2px 8px rgba(59,130,246,0.35);
-          z-index: 10;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: background 0.15s;
-        }
-        #factCheckerModeTab:hover { background: #2563eb; }
+        #factCheckerModeTab { display: none !important; }
         #factCheckerResizeHandle { display: none !important; }
       `;
 
@@ -309,6 +303,11 @@ function injectPanel(initialMode, initialWidth) {
   window.addEventListener("message", (event) => {
     if (!event.data) return;
 
+    if (event.data.type === "SWITCH_TO_FLOAT" || event.data.type === "TOGGLE_PANEL_MODE") {
+      applyMode(currentMode === "side" ? "float" : "side");
+      return;
+    }
+
     if (event.data.type === "CLOSE_PANEL") {
       clearPagePush();
       container.remove();
@@ -320,7 +319,8 @@ function injectPanel(initialMode, initialWidth) {
 
     // Only auto-resize height in float mode
     if (event.data.type === "RESIZE_PANEL" && currentMode === "float") {
-      const h = Math.min(event.data.height + 10, 600);
+      const maxH = Math.floor(window.innerHeight * 0.9);
+      const h = Math.min(event.data.height + 10, maxH);
       container.style.height = h + "px";
     }
   });
