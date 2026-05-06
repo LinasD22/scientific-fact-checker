@@ -2,6 +2,7 @@ const checkBtn = document.getElementById("checkBtn");
 const clearBtn = document.getElementById("clearBtn");
 const btnText = document.getElementById("btnText");
 const claimInput = document.getElementById("claimInput");
+const inputError = document.getElementById("inputError");
 const resultCard = document.getElementById("resultCard");
 const authBtnAction = document.getElementById('authBtnAction');
 const userInfo = document.getElementById('userInfo');
@@ -70,10 +71,11 @@ async function runOCR(file) {
         if (response && response.error) {
           ocrShowState("error", response.error);
         } else if (response && response.text) {
-          claimInput.value = response.text;
-          ocrShowState("file", file.name);
-          sendHeight();
-        } else {
+           claimInput.value = response.text;
+           inputError.style.display = "none";
+           ocrShowState("file", file.name);
+           sendHeight();
+         } else {
           ocrShowState("error", "No text found in image.");
         }
       }
@@ -164,13 +166,16 @@ const translations = {
     alreadyHaveAccount: "Already have an account?",
     createAccount: "Create Account",
     login: "Login",
-	tabCheck: "Check",
+ 	tabCheck: "Check",
     tabHistory: "History",
     historyLoginPrompt: "Login to view your check history",
     historyLoading: "Loading history…",
     backToHistory: "Back to history",
     retry: "Retry",
     historyEmpty: "No checks yet — run your first fact check!",
+    // Word count validation
+    wordCountMin: "Please enter at least 3 words.",
+    wordCountMax: "Please enter no more than 100 words.",
 
   },
   lt: {
@@ -223,6 +228,9 @@ const translations = {
     backToHistory: "Grįžti į istoriją",
     retry: "Bandyti dar",
     historyEmpty: "Dar nėra patikrinimų — patikrinkite pirmą faktą!",
+    // Word count validation
+    wordCountMin: "Įveskite bent 3 žodžius.",
+    wordCountMax: "Įveskite ne daugiau kaip 100 žodžių.",
   },
 };
 
@@ -448,9 +456,17 @@ function updateUI() {
 // Clear Button Logic
 clearBtn.addEventListener("click", () => {
   claimInput.value = "";
+  inputError.style.display = "none";
   resultCard.classList.add("hidden");
   ocrShowState("idle");
   sendHeight();
+});
+
+// Clear error on input
+claimInput.addEventListener("input", () => {
+  if (inputError.style.display === "block") {
+    inputError.style.display = "none";
+  }
 });
 
 // ── Manual Check Logic ────────────────────────────────────────────────────────
@@ -461,7 +477,20 @@ checkBtn.addEventListener("click", autoCheck);
 
 function autoCheck() {
   const claim = claimInput.value.trim();
-  if (!claim) return;
+
+  // Word count validation: [3, 100]
+  const wordCount = claim.split(/\s+/).filter(w => w.length > 0).length;
+  if (wordCount < 3) {
+    inputError.textContent = t("wordCountMin");
+    inputError.style.display = "block";
+    return;
+  }
+  if (wordCount > 100) {
+    inputError.textContent = t("wordCountMax");
+    inputError.style.display = "block";
+    return;
+  }
+  inputError.style.display = "none";
 
   checkBtn.disabled = true;
   btnText.textContent = t("checking");
