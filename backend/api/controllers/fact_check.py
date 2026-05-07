@@ -189,33 +189,43 @@ async def fact_check_with_search(
         for i, f_obj in enumerate(facts, 1):
             print(f"  {i}. {f_obj['fact']} (Quote: {f_obj.get('exact_quote', 'N/A')})")
         
-        # ── Step 1b: Translate non-English facts to English ──
+        # ── Step 1b: Translate non-English facts to English IN PARALLEL ──
         print(f"\n=== Translating facts to English (if needed) ===")
-        facts_to_check = []  # English facts for fact-checking
-        original_facts_metadata = []  # Metadata for the response
-        
-        for i, f_obj in enumerate(facts, 1):
+
+        async def translate_fact(idx: int, f_obj: dict) -> dict:
             fact_text = f_obj["fact"]
             exact_quote = f_obj.get("exact_quote", fact_text)
-
-            translation_result = translate_to_english(fact_text)
-            translated_text = translation_result["translated"]
-            was_translated = translation_result["was_translated"]
-            detected_lang = translation_result.get("detected_language", "unknown")
-
-            facts_to_check.append(translated_text)
-            original_facts_metadata.append({
+            translation_result = await asyncio.to_thread(translate_to_english, fact_text)
+            return {
+                "index": idx,
                 "original": fact_text,
                 "exact_quote": exact_quote,
-                "translated": translated_text,
-                "was_translated": was_translated,
-                "detected_language": detected_lang,
-            })
+                "translated": translation_result["translated"],
+                "was_translated": translation_result["was_translated"],
+                "detected_language": translation_result.get("detected_language", "unknown"),
+            }
 
-            if was_translated:
-                print(f"  Fact {i}: [{detected_lang} -> en] {fact_text}")
+        translation_tasks = [translate_fact(i, f_obj) for i, f_obj in enumerate(facts)]
+        translation_results = await asyncio.gather(*translation_tasks)
+
+        # Sort by index to maintain original order
+        translation_results.sort(key=lambda x: x["index"])
+
+        facts_to_check = []
+        original_facts_metadata = []
+        for res in translation_results:
+            facts_to_check.append(res["translated"])
+            original_facts_metadata.append({
+                "original": res["original"],
+                "exact_quote": res["exact_quote"],
+                "translated": res["translated"],
+                "was_translated": res["was_translated"],
+                "detected_language": res["detected_language"],
+            })
+            if res["was_translated"]:
+                print(f"  Fact {res['index']+1}: [{res['detected_language']} -> en] {res['original']}")
             else:
-                print(f"  Fact {i}: [en] {fact_text}")
+                print(f"  Fact {res['index']+1}: [en] {res['original']}")
 
         # ── Step 2: Fact-check each individual fact IN PARALLEL ──
         print(f"\n=== Starting parallel fact-checking for {len(facts_to_check)} facts ===")
@@ -236,32 +246,49 @@ async def fact_check_with_search(
                 individual_results = result.individual_results
                 summary_lithuanian = None
 
-                # Always translate summary to Lithuanian
-                if result.summary:
-                    try:
-                        summary_translation = await loop.run_in_executor(
-                            None,
-                            lambda txt=result.summary: translate_from_english(txt, "lithuanian")
-                        )
-                        summary_lithuanian = summary_translation.get("translated")
-                    except Exception as e:
-                        logging.warning(f"Failed to translate summary to Lithuanian: {e}")
+                # Translate summary and explanations IN PARALLEL using asyncio.to_thread
+                async def translate_text(text: str):
+                    return await asyncio.to_thread(translate_from_english, text, "lithuanian")
 
-                # Translate explanations in individual_results to Lithuanian
+                summary_task = translate_text(result.summary) if result.summary else None
+                explanation_tasks = [
+                    translate_text(ind_res["explanation"])
+                    for ind_res in individual_results
+                    if ind_res.get("explanation")
+                ]
+
+                # Run all translations concurrently
+                all_tasks = ([summary_task] if summary_task else []) + explanation_tasks
+                if all_tasks:
+                    all_results = await asyncio.gather(*all_tasks, return_exceptions=True)
+                else:
+                    all_results = []
+
+                # Process summary result
+                offset = 0
+                if summary_task:
+                    res = all_results[offset]
+                    if not isinstance(res, Exception):
+                        summary_lithuanian = res.get("translated")
+                    else:
+                        logging.warning(f"Failed to translate summary to Lithuanian: {res}")
+                    offset += 1
+
+                # Remaining results are explanations
+                explanation_results = all_results[offset:]
+
+                # Assign translations back to individual results
                 translated_individuals = []
+                expl_idx = 0
                 for ind_res in individual_results:
                     ind_copy = ind_res.copy()
-                    explanation = ind_res.get("explanation", "")
-                    if explanation:
-                        try:
-                            translation = await loop.run_in_executor(
-                                None,
-                                lambda txt=explanation: translate_from_english(txt, "lithuanian")
-                            )
-                            ind_copy["explanation_lithuanian"] = translation.get("translated")
-                        except Exception as e:
-                            logging.warning(f"Failed to translate explanation to Lithuanian: {e}")
+                    if ind_res.get("explanation") and expl_idx < len(explanation_results):
+                        res = explanation_results[expl_idx]
+                        if not isinstance(res, Exception):
+                            ind_copy["explanation_lithuanian"] = res.get("translated")
+                        else:
                             ind_copy["explanation_lithuanian"] = None
+                        expl_idx += 1
                     else:
                         ind_copy["explanation_lithuanian"] = None
                     translated_individuals.append(ind_copy)
