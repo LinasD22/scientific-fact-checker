@@ -16,6 +16,7 @@ Thread Safety:
 - Lock is held during: search, store, cache checks, reranking
 """
 import hashlib
+import json
 import logging
 import os
 import time
@@ -56,8 +57,8 @@ from sentence_transformers import CrossEncoder
 
 COLLECTION = "fact_checker_cache"
 
-_EMBED_BATCH_SIZE  = 256
-_UPSERT_BATCH_SIZE = 512
+_EMBED_BATCH_SIZE  = 1024
+_UPSERT_BATCH_SIZE = 1024
 _THREAD_POOL_SIZE  = 8
 _FETCH_MULTIPLIER  = 2
 _RERANK_BATCH      = 16
@@ -115,7 +116,13 @@ class QdrantVectorClient:
         )
         logging.info("Reranker ready.")
 
-        self.client = QdrantClient(path=self.cache_path)
+        qdrant_url = os.getenv("QDRANT_URL")
+        if qdrant_url:
+            self.client = QdrantClient(url=qdrant_url)
+            logging.info(f"Qdrant: serverio režimas → {qdrant_url}")
+        else:
+            self.client = QdrantClient(path=self.cache_path)
+            logging.info(f"Qdrant: lokalus failų režimas → {self.cache_path}")
 
         # Thread safety: RLock allows the same thread to acquire the lock multiple times
         # This is critical for nested operations (search → rerank) without deadlock
@@ -163,8 +170,6 @@ class QdrantVectorClient:
                 optimizers_config=OptimizersConfigDiff(
                     indexing_threshold=20000,
                     memmap_threshold=10000,
-                    max_optimization_threads=1,
-                    flush_interval_sec=30,
                 ),
                 on_disk_payload=True,
             )
@@ -175,6 +180,9 @@ class QdrantVectorClient:
                     field_schema=PayloadSchemaType.KEYWORD,
                 )
             logging.info(f"Created persistent Qdrant collection '{COLLECTION}'")
+
+            config_dict = self.client.get_collection(COLLECTION).config.dict() # Konvertuojame i žodyna
+            print(json.dumps(config_dict, indent=2))
         else:
             count = self.client.count(collection_name=COLLECTION).count
             logging.info(

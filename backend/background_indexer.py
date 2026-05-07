@@ -19,6 +19,8 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Optional
 
+from qdrant_client.models import HnswConfigDiff
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from dotenv import load_dotenv
@@ -26,7 +28,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 from api.utils.pubmed_api_client import PubMedAPIClient
-from api.utils.qdrant_vector_client import QdrantVectorClient
+from api.utils.qdrant_vector_client import QdrantVectorClient, COLLECTION
 from MeshParser import get_optimal_topics
 
 if sys.platform == "win32":
@@ -234,6 +236,16 @@ def run_indexer(once: bool = True, interval: int = 3600) -> None:
     qdrant = QdrantVectorClient()
     topics_list = get_optimal_topics()
 
+    log.info("before=")
+    config_dict = qdrant.client.get_collection(COLLECTION).config.dict() # Konvertuojame i žodyna
+    print(json.dumps(config_dict, indent=2))
+
+
+    qdrant.client.update_collection(
+        collection_name=COLLECTION,
+        hnsw_config=HnswConfigDiff(m=0)
+    )
+
     log.info("=" * 60)
     log.info("Background indexer v5 — TRUE parallel pipeline (async upsert)")
     log.info("=" * 60)
@@ -244,6 +256,11 @@ def run_indexer(once: bool = True, interval: int = 3600) -> None:
     log.info(f"  Upsert workers: {UPSERT_WORKERS}")
     log.info(f"  Prefetch gylis: {PREFETCH_DEPTH}")
     log.info(f"  Režimas: {'vienkartinis' if once else f'kas {interval}s'}")
+
+    log.info("after=")
+    config_dict = qdrant.client.get_collection(COLLECTION).config.dict() # Konvertuojame i žodyna
+    print(json.dumps(config_dict, indent=2))
+
 
     indexed_ids = load_indexed_ids_from_qdrant(qdrant)
 
