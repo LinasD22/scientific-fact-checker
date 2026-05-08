@@ -174,7 +174,7 @@ async def fact_check_with_search(
         print(f"\n=== ORIGINAL WHOLE CLAIM: {claim} ===")
         print(f"\n=== Preprocessing: Extracting individual facts ===")
         facts_result = extract_individual_facts(claim)
-        
+         
         # Accommodate the new AI format (dicts with exact_quote) while falling back to strings
         raw_facts = facts_result.get("facts", [claim]) 
         facts = []
@@ -184,12 +184,26 @@ async def fact_check_with_search(
             else:
                 # Fallback if the AI just returns a string
                 facts.append({"fact": f, "exact_quote": f})
-        
+         
         print(f"Extracted {len(facts)} fact(s) to check:")
         for i, f_obj in enumerate(facts, 1):
             print(f"  {i}. {f_obj['fact']} (Quote: {f_obj.get('exact_quote', 'N/A')})")
-        
-        # ── Step 1b: Translate non-English facts to English IN PARALLEL ──
+         
+        # ── Determine LIMIT based on number of facts ──
+        # 1 fact   → 6  0-1 facts → 6, 2 → 5, 3 → 4, 4 → 3, 5+ → 2
+        num_facts = len(facts)
+        if num_facts <= 1:
+            LIMIT = 6
+        elif num_facts == 2:
+            LIMIT = 5
+        elif num_facts == 3:
+            LIMIT = 4
+        elif num_facts == 4:
+            LIMIT = 3
+        else:  # >=5
+            LIMIT = 2
+         
+        print(f"\n=== Dynamic LIMIT: {LIMIT} papers per database for {num_facts} fact(s) ===")
         print(f"\n=== Translating facts to English (if needed) ===")
 
         async def translate_fact(idx: int, f_obj: dict) -> dict:
