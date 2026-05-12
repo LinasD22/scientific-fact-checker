@@ -23,6 +23,7 @@ import time
 import uuid
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from typing import Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -53,6 +54,7 @@ os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
 #os.environ.setdefault("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
 
 from fastembed import TextEmbedding
+from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 
 COLLECTION = "fact_checker_cache"
@@ -640,23 +642,33 @@ class QdrantVectorClient:
         with self._collection_lock:
             cached_fps = self._batch_is_cached(all_fps)
 
+        new_articles_to_embed: list[dict] = []
+
         for title, text, fp in cache_results:
             if fp in cached_fps:
                 cached_titles.append(title)
                 logging.info(f"Cache HIT  → '{title}'")
             else:
                 meta = works_meta.get(title, {})
-                # _store_work acquires lock internally for upsert only
-                n = self._store_work(
-                    title, text, fp,
-                    source_db=meta.get("source_db", "lazy"),
-                    source_id=meta.get("source_id", ""),
-                    authors=meta.get("authors"),
-                    published_date=meta.get("published_date"),
-                    url=meta.get("url"),
-                )
+                new_articles_to_embed.append({
+                    "title": title,
+                    "text": text,
+                    "pmc_id": meta.get("source_id", ""),
+                    "source_db": meta.get("source_db", "lazy"),
+                    "authors": meta.get("authors"),
+                    "published_date": meta.get("published_date"),
+                    "url": meta.get("url"),
+                })
                 new_titles.append(title)
-                logging.info(f"Cache MISS → '{title}' stored {n} chunks")
+                logging.info(f"Cache MISS → '{title}' (queued for batch embed)")
+
+        # Batch embed visi nauji straipsniai vienu ONNX kvietimu
+        if new_articles_to_embed:
+            logging.info(f"Batch embedding {len(new_articles_to_embed)} naujų straipsnių...")
+            chunks, vectors, payloads, _ = self.embed_articles_bulk(new_articles_to_embed)
+            if chunks:
+                self.upsert_points(chunks, vectors, payloads)
+                logging.info(f"Batch embed baigtas: {len(chunks)} chunks iš {len(new_articles_to_embed)} straipsnių")
 
         all_titles = cached_titles + new_titles
         if not all_titles:
@@ -724,12 +736,84 @@ class QdrantVectorClient:
 
         return self._rerank(claim, candidates, top_k)
 
+    def search_snippets_bm25(
+        self,
+        claim: str,
+        works: list[dict[str, Any]],
+        top_k: int = 5,
+        works_metadata: dict[str, dict[str, Any]] | None = None,
+        rerank_candidates: int = 30,
+    ) -> list[dict[str, Any]]:
+        """
+        BM25 lexical search + cross-encoder reranking.
+        """
+        if not works:
+            return []
+
+        works_meta = works_metadata or {}
+
+        # Chunk'iname visus works naudodami tą patį splitter'į
+        all_chunks: list[dict[str, Any]] = []
+        for work in works:
+            title = work.get("title", "Unknown")
+            text = work.get("text", "")
+            if not text:
+                continue
+            meta = works_meta.get(title, {})
+            for chunk in self.splitter.split_text(text):
+                all_chunks.append({
+                    "text":           chunk,
+                    "title":          title,
+                    "source":         title,
+                    "score":          0.0,
+                    "rerank_score":   -5.0,
+                    "published_date": meta.get("published_date"),
+                    "url":            meta.get("url"),
+                    "authors":        meta.get("authors"),
+                    "source_db":      meta.get("source_db", "lazy"),
+                    "source_id":      meta.get("source_id", ""),
+                })
+
+        if not all_chunks:
+            logging.warning("search_snippets_bm25: nėra chunk'ų iš works")
+            return []
+
+        # BM25 scoring
+        tokenized_corpus = [c["text"].lower().split() for c in all_chunks]
+        bm25 = BM25Okapi(tokenized_corpus)
+        query_tokens = claim.lower().split()
+        scores = bm25.get_scores(query_tokens)
+
+        # Renkame top kandidatus reranker'iui
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+        top_indices = top_indices[:rerank_candidates]
+
+        candidates = []
+        for i in top_indices:
+            if scores[i] <= 0:
+                break
+            chunk = dict(all_chunks[i])
+            chunk["score"] = round(float(scores[i]), 4)
+            candidates.append(chunk)
+
+        if not candidates:
+            logging.warning("search_snippets_bm25: visi BM25 scores == 0 (query terminai nerasti)")
+            return []
+
+        logging.info(
+            f"search_snippets_bm25: {len(all_chunks)} chunks → "
+            f"{len(candidates)} BM25 kandidatai → reranking"
+        )
+
+        return self._rerank(claim, candidates, top_k)
+
     def search_global(
         self,
         claim: str,
         top_k: int = 3,
         min_score: float | None = None,
     ) -> list[dict[str, Any]]:
+        logging.info(f"--search_global START {claim} : {datetime.now().strftime("%H:%M:%S.%f")} ")
         threshold = min_score if min_score is not None else self.global_min_score
 
         query_vector = self._embed([claim])[0]
