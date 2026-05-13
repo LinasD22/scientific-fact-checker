@@ -193,15 +193,15 @@ async def fact_check_with_search(
         # 1 fact   → 6  0-1 facts → 6, 2 → 5, 3 → 4, 4 → 3, 5+ → 2
         num_facts = len(facts)
         if num_facts <= 1:
-            LIMIT = 6
+            LIMIT =10
         elif num_facts == 2:
-            LIMIT = 5
+            LIMIT = 8
         elif num_facts == 3:
-            LIMIT = 4
+            LIMIT = 6
         elif num_facts == 4:
-            LIMIT = 3
+            LIMIT = 5
         else:  # >=5
-            LIMIT = 2
+            LIMIT = 4
          
         print(f"\n=== Dynamic LIMIT: {LIMIT} papers per database for {num_facts} fact(s) ===")
         print(f"\n=== Translating facts to English (if needed) ===")

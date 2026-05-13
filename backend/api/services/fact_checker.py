@@ -453,7 +453,7 @@ class FactCheckerService:
             for w in works_with_text
         ]
 
-        # Step 2: BM25 + rerank — greitas snippet radimas be embedding'o
+        # Step 2: BM25 + bigrams + PRF + rerank
         # Metadata map: title → {authors, published_date, url}
         works_metadata = {}
         for w in works_with_text:

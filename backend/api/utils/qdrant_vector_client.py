@@ -53,7 +53,7 @@ os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
 #os.environ.setdefault("ONNXRUNTIME_INTER_OP_NUM_THREADS", "16")
 #os.environ.setdefault("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
 
-from fastembed import TextEmbedding
+from fastembed import TextEmbedding, SparseTextEmbedding
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 
@@ -114,9 +114,20 @@ class QdrantVectorClient:
         self.reranker = CrossEncoder(
             self.reranker_model_name,
             device="cpu",
-            backend="onnx"
+            backend="onnx",
         )
         logging.info("Reranker ready.")
+
+        self.splade_model_name = os.getenv(
+            "SPLADE_MODEL",
+            "prithivida/Splade_PP_en_v1",
+        )
+        logging.info(f"Loading SPLADE sparse model: {self.splade_model_name}")
+        self.splade_model = SparseTextEmbedding(
+            model_name=self.splade_model_name,
+            providers=["CPUExecutionProvider"],
+        )
+        logging.info("SPLADE model ready.")
 
         qdrant_url = os.getenv("QDRANT_URL")
         if qdrant_url:
@@ -736,6 +747,73 @@ class QdrantVectorClient:
 
         return self._rerank(claim, candidates, top_k)
 
+    # ── BM25 helpers ───────────────────────────────────────────────────────────
+
+    _BM25_STOPWORDS: frozenset[str] = frozenset({
+        "the", "a", "an", "of", "in", "is", "to", "and", "or", "with",
+        "was", "were", "are", "be", "been", "this", "that", "for", "from",
+        "by", "at", "as", "on", "it", "its", "not", "we", "our", "their",
+        "these", "those", "also", "but", "had", "has", "have", "which",
+        "that", "than", "can", "may", "who", "when", "where", "into",
+    })
+
+    @staticmethod
+    def _tokenize_with_bigrams(text: str, stopwords: frozenset[str] = _BM25_STOPWORDS) -> list[str]:
+        """
+        Unigrams + bigrams po stopwords filtracijos.
+
+        "blood pressure medication" →
+            ["blood", "pressure", "medication", "blood_pressure", "pressure_medication"]
+
+        Bigrams pagerina medicininiams terminams:
+        "blood_pressure", "clinical_trial", "placebo_controlled" ir pan.
+        """
+        tokens = [t for t in text.lower().split() if t not in stopwords]
+        bigrams = [f"{tokens[i]}_{tokens[i + 1]}" for i in range(len(tokens) - 1)]
+        return tokens + bigrams
+
+    @staticmethod
+    def _prf_expand(
+        claim: str,
+        first_pass_chunks: list[dict[str, Any]],
+        top_n_docs: int = 3,
+        top_n_terms: int = 6,
+        stopwords: frozenset[str] = _BM25_STOPWORDS,
+    ) -> str:
+        """
+        Pseudo Relevance Feedback — išplečia query terminais iš top BM25 chunk'ų.
+
+        Prielaida: PMC/CORE jau grąžino relevantius straipsnius, todėl
+        top chunk'ai yra pakankamai patikimi terminų šaltiniai.
+
+        Args:
+            claim:              Originalus teiginys
+            first_pass_chunks:  BM25 pirmo pass'o rezultatai (surūšiuoti pagal score)
+            top_n_docs:         Iš kiek top chunk'ų rinkti terminus
+            top_n_terms:        Kiek expansion terminų pridėti
+            stopwords:          Filtruojami žodžiai
+
+        Returns:
+            Išplėstas query string'as
+        """
+        import re
+        from collections import Counter
+
+        top_texts = " ".join(c["text"] for c in first_pass_chunks[:top_n_docs])
+        words = re.findall(r'\b[a-zA-Z]{4,}\b', top_texts.lower())
+        words = [w for w in words if w not in stopwords]
+
+        claim_tokens = set(claim.lower().split())
+        term_counts = Counter(w for w in words if w not in claim_tokens)
+
+        expansion_terms = [t for t, _ in term_counts.most_common(top_n_terms)]
+        if not expansion_terms:
+            return claim
+
+        expanded = f"{claim} {' '.join(expansion_terms)}"
+        logging.info(f"PRF expansion: [{', '.join(expansion_terms)}]")
+        return expanded
+
     def search_snippets_bm25(
         self,
         claim: str,
@@ -743,20 +821,38 @@ class QdrantVectorClient:
         top_k: int = 5,
         works_metadata: dict[str, dict[str, Any]] | None = None,
         rerank_candidates: int = 30,
+        prf_first_pass: int = 10,
+        prf_min_chunks: int = 3,
     ) -> list[dict[str, Any]]:
         """
-        BM25 lexical search + cross-encoder reranking.
+        BM25 + bigrams + PRF (Pseudo Relevance Feedback) + cross-encoder reranking.
+
+        Pipeline:
+          1. Chunk'iname visus works
+          2. BM25 pirmas pass (bigrams) — renkame PRF kandidatus
+          3. PRF — išplečiame query terminais iš top chunk'ų
+          4. BM25 antras pass su išplėstu query
+          5. Cross-encoder reranking
+
+        Args:
+            claim:             Teiginys / query
+            works:             [{"title": ..., "text": ...}]
+            top_k:             Kiek geriausių snippet'ų grąžinti
+            works_metadata:    {title: {"published_date", "url", "authors", ...}}
+            rerank_candidates: Kiek BM25 kandidatų perduoti reranker'iui
+            prf_first_pass:    Kiek top chunk'ų naudoti PRF terminų rinkimui
+            prf_min_chunks:    Minimalus chunk'ų skaičius PRF aktyvavimui
         """
         if not works:
             return []
 
         works_meta = works_metadata or {}
 
-        # Chunk'iname visus works naudodami tą patį splitter'į
+        # Chunk'iname visus works
         all_chunks: list[dict[str, Any]] = []
         for work in works:
             title = work.get("title", "Unknown")
-            text = work.get("text", "")
+            text  = work.get("text", "")
             if not text:
                 continue
             meta = works_meta.get(title, {})
@@ -778,22 +874,52 @@ class QdrantVectorClient:
             logging.warning("search_snippets_bm25: nėra chunk'ų iš works")
             return []
 
-        # BM25 scoring
-        tokenized_corpus = [c["text"].lower().split() for c in all_chunks]
+        # Tokenizuojame corpus su bigrams
+        tokenized_corpus = [self._tokenize_with_bigrams(c["text"]) for c in all_chunks]
         bm25 = BM25Okapi(tokenized_corpus)
-        query_tokens = claim.lower().split()
-        scores = bm25.get_scores(query_tokens)
 
-        # Renkame top kandidatus reranker'iui
-        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-        top_indices = top_indices[:rerank_candidates]
+        # ── Pass 1: PRF terminų rinkimas ────────────────────────────────────────
+        first_tokens = self._tokenize_with_bigrams(claim)
+        first_scores  = bm25.get_scores(first_tokens)
+
+        first_indices = sorted(
+            range(len(first_scores)),
+            key=lambda i: first_scores[i],
+            reverse=True,
+        )
+        first_pass_chunks = [
+            all_chunks[i]
+            for i in first_indices[:prf_first_pass]
+            if first_scores[i] > 0
+        ]
+
+        # ── PRF expansion ───────────────────────────────────────────────────────
+        if len(first_pass_chunks) >= prf_min_chunks:
+            expanded_claim = self._prf_expand(claim, first_pass_chunks)
+        else:
+            expanded_claim = claim
+            logging.info(
+                f"search_snippets_bm25: PRF praleistas "
+                f"(tik {len(first_pass_chunks)} chunk'ų < min {prf_min_chunks})"
+            )
+
+        # ── Pass 2: galutinis BM25 scoring su išplėstu query ───────────────────
+
+        final_tokens = self._tokenize_with_bigrams(expanded_claim)
+        final_scores  = bm25.get_scores(final_tokens)
+
+        top_indices = sorted(
+            range(len(final_scores)),
+            key=lambda i: final_scores[i],
+            reverse=True,
+        )[:rerank_candidates]
 
         candidates = []
         for i in top_indices:
-            if scores[i] <= 0:
+            if final_scores[i] <= 0:
                 break
             chunk = dict(all_chunks[i])
-            chunk["score"] = round(float(scores[i]), 4)
+            chunk["score"] = round(float(final_scores[i]), 4)
             candidates.append(chunk)
 
         if not candidates:
