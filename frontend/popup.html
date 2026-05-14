@@ -19,10 +19,29 @@
       <button id="closePanelBtn" style="background:none; color:#64748b; width:auto; margin:0; padding:5px; box-shadow:none; flex-shrink:0;">✕</button>
     </header>
 
+    <div id="status-message" style="color: red; font-size: 12px; margin-bottom: 10px;"></div>
+
     <div id="authContainer" style="padding: 10px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
       <span id="userInfo" style="font-size: 12px; color: #555;" data-i18n="notLoggedIn">Not logged in</span>
       <button id="authBtnAction" style="font-size: 10px;" data-i18n="loginOrRegister">Login or Register</button>
     </div>
+
+    <!-- This shows when user is FREE -->
+    <div id="upgrade-section" style="display: none;">
+      <button id="upgrade-button">Upgrade Plan</button>
+    </div>
+
+    <!-- This shows when user is PRO -->
+  <div id="subscription-details" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+          <strong id="plan-name-label" style="color: #2da44e;">PRO PLAN</strong>
+          <span id="usage-count" style="font-size: 11px; color: #57606a;">0 queries</span>
+      </div>
+      <div id="renewal-info" style="font-size: 10px; color: #57606a; margin-top: 5px;"></div>
+      <a href="#" id="manage-billing-link" style="color: #0969da; text-decoration: underline; font-size: 12px; cursor: pointer;">
+        ⚙️ Manage Subscription
+      </a>
+  </div>
 
     <!-- ── Tab Bar ──────────────────────────────────────────────── -->
     <div class="tab-bar">

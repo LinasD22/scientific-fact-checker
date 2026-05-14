@@ -3,10 +3,13 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta, timezone
 from sqlmodel import Session, select, delete
 from api.db.database import engine
-from api.db.models import User, Auth, TokenBlacklist
+from api.db.models import User, Auth, TokenBlacklist, Subscription
 from api.schemas.user import UserCreate, LoginRequest
 from api.utils.password_security import hash_password, verify_password, create_access_token
 from pydantic import BaseModel
+from api.db.database import get_session
+from api.utils.password_security import decode_access_token
+from jose import JWTError, ExpiredSignatureError
 
 app = FastAPI()
 
@@ -19,10 +22,55 @@ router = APIRouter(
     tags=["Authentication"]
 )
 
-# Dependency to get a database session
-def get_session():
-    with Session(engine) as session:
-        yield session
+# # Dependency to get a database session
+# def get_session():
+#     with Session(engine) as session:
+#         yield session
+
+def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
+    payload = decode_access_token(token)
+    
+    # Extract email
+    email: str = payload.get("sub")
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User identity not found in token."
+        )
+
+    # Fetch user from DB
+    user = session.exec(select(User).where(User.email == email)).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User no longer exists."
+        )
+
+    return user
+
+def get_subscription_info(user_id: int, user_email: str, session: Session):
+    # Find the newest subscription record
+    statement = (
+        select(Subscription)
+        .where(Subscription.user_id == user_id)
+        .order_by(Subscription.id.desc())
+    )
+    latest_sub = session.exec(statement).first()
+
+    if latest_sub and latest_sub.status_id == 1:
+        return {
+            "is_active": True,
+            "plan": latest_sub.plan_name,
+            "queries_performed": latest_sub.queries_performed,
+            "renewal_time": latest_sub.renewal_time
+        }
+
+    return {
+        "is_active": False,
+        "plan": "free",
+        "queries_performed": 0,
+        "renewal_time": None
+    }
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_user(user_data: UserCreate, session: Session = Depends(get_session)):
@@ -46,15 +94,31 @@ def register_user(user_data: UserCreate, session: Session = Depends(get_session)
         first_name=user_data.first_name,
         last_name=user_data.last_name,
         email=user_data.email,
-        auth_email=new_auth.email
+        auth_email=new_auth.email,
+        stripe_customer_id=None  # Will be set when they start a checkout session
     )
     session.add(new_user)
-
-    # Commit to database
-    session.commit()
-    session.refresh(new_user)
     
-    return {"message": "User registered successfully", "user_id": new_user.id}
+    try:
+        session.commit()
+        session.refresh(new_user)
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail="Database error during registration.")
+
+    # Generate JWT Token (logged in immediately)
+    access_token = create_access_token(data={"sub": new_user.email})
+
+    # Get initial subscription info (default free)
+    sub_info = get_subscription_info(new_user.id, new_user.email, session)
+
+    return {
+        "message": "User registered successfully",
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": new_user.id,
+        "subscription": sub_info
+    }
 
 @router.post("/login")
 def login(data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
@@ -63,16 +127,29 @@ def login(data: OAuth2PasswordRequestForm = Depends(), session: Session = Depend
     statement = select(Auth).where(Auth.email == data.username)
     user_auth = session.exec(statement).first()
     
-    # Check if user exists AND password is correct
+    # Check if user exists and password is correct
     if not user_auth or not verify_password(data.password, user_auth.password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # get user object to return user_id in response
+    user = session.exec(select(User).where(User.email == data.username)).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    
+    # get subscription info using helper
+    sub_info = get_subscription_info(user.id, user.email, session)
 
     # Create JWT token
-    # sub (subject) is unique identifier for the user, using user email here
+    # sub is unique identifier for the user, using user email here
     access_token = create_access_token(data={"sub": user_auth.email})
 
-    user = session.exec(select(User).where(User.email == data.username)).first()
-    return {"access_token": access_token, "token_type": "bearer", "user_id": user.id}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "subscription": sub_info
+    }
     
 
 def cleanup_blacklist(session: Session):

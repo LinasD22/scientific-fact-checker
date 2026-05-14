@@ -14,7 +14,7 @@ services:
       --header "CF-Access-Client-Id: ${CF_CLIENT_ID}"
       --header "CF-Access-Client-Secret: ${CF_CLIENT_SECRET}"
 
-  #For local or server db hosting
+  # For local or server db hosting
   db:
     image: mariadb:10.11
     restart: always

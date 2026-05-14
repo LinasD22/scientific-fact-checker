@@ -418,18 +418,97 @@ chrome.storage.local.get("lastClaim", (data) => {
 });
 
 function updateUI() {
-	chrome.storage.local.get(['token', 'userEmail', 'guestUsage'], (result) => {
+  const keysToFetch = ['token', 'userEmail', 'guestUsage', 'plan', 'isActive'];
+
+// This will log if any key is accidentally null/undefined
+  keysToFetch.forEach(key => {
+      if (typeof key !== 'string') {
+          console.error("Found a non-string key:", key);
+      }
+  });
+
+  chrome.storage.local.get(keysToFetch, (result) => {
+      if (chrome.runtime.lastError) {
+          console.error("Storage Error:", chrome.runtime.lastError);
+      } else {
+          console.log("Storage Data retrieved:", result);
+      }
+  });
+
+	chrome.storage.local.get(['token', 'userEmail', 'guestUsage', 'plan', 'isActive'], (result) => {
 		const today = new Date().toLocaleDateString();
 		const checkBtn = document.getElementById("checkBtn");
 		const btnText = document.getElementById("btnText");
 		const LIMIT = 3;
 		if (result.token) {
+      // Logged in user info
 			userInfo.innerText = t("loggedInAs", { email: result.userEmail });
 			authBtnAction.innerText = t("logout");
-			checkBtn.disabled = false;
-			checkBtn.style.opacity = "1";
-			checkBtn.style.cursor = "pointer";
-		} else {
+
+      // 2. Fetch the latest status from your FastAPI server
+        fetch('http://127.0.0.1:8000/user-status', {
+            headers: {
+                'Authorization': `Bearer ${result.token}`}})
+        .then(async response => {
+          // Session expired
+          if (response.status === 401) {
+            const errorData = await response.json();
+            if (errorData.detail === "SESSION_EXPIRED") {
+              handleSessionEnd();
+            }
+            throw new Error('Unauthorized');
+          }
+           // Check for other general errors 
+          if (!response.ok) {
+            throw new Error('Server Error');
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Update the UI based on the server's real-time data
+          const upgradeSection = document.getElementById("upgrade-section");
+          const subDetails = document.getElementById("subscription-details");
+          const planNameLabel = document.getElementById("plan-name-label");
+          const usageCount = document.getElementById("usage-count");
+          const renewalInfo = document.getElementById("renewal-info");
+
+          if (data.isActive) {
+              // toggle visibility
+              upgradeSection.style.display = "none";
+              subDetails.style.display = "block";
+
+              // set labels
+              planNameLabel.innerText = `${data.plan.toUpperCase()} MEMBER`;
+              usageCount.innerText = `${data.queries_performed} queries used`;
+
+              // format the renewal date
+              if (data.renewal_time) {
+                  const date = new Date(data.renewal_time);
+                  renewalInfo.innerText = `Renews on: ${date.toLocaleDateString()}`;
+              }
+              
+              console.log("User is active. UI updated to Pro state.");
+          } else {
+              // back to Free state
+              upgradeSection.style.display = "block";
+              subDetails.style.display = "none";
+              console.log("User is free. Showing upgrade button.");
+          }
+        })
+        .catch(err => {
+            console.error("Failed to verify user status:", err);
+            // Hide button if status check fails
+            document.getElementById("upgrade-section").style.display = "none";
+            // Fallback: show button if we can't confirm they are Pro
+            //upgradeSection.style.display = "block";
+        });
+
+        // 4. Enable other buttons
+        checkBtn.disabled = false;
+        checkBtn.style.opacity = "1";
+        checkBtn.style.cursor = "pointer";
+    }
+		 else {
 			const count =
 				result.guestUsage && result.guestUsage.date === today
 					? result.guestUsage.count
@@ -452,6 +531,38 @@ function updateUI() {
 		}
 	});
 }
+document.getElementById("manage-billing-link").addEventListener("click", (e) => {
+    e.preventDefault();
+
+    // 1. Get the token from storage (same way your updateUI function does)
+    chrome.storage.local.get(['token'], (result) => {
+        if (!result.token) {
+            alert("Please log in to manage your billing.");
+            return;
+        }
+
+        // 2. Call the portal endpoint with the Bearer token
+        fetch('http://127.0.0.1:8000/create-portal-session2', {
+            headers: {
+                'Authorization': `Bearer ${result.token}`
+            }
+        })
+        .then(response => {
+            if (!response.ok) throw new Error("Portal request failed");
+            return response.json();
+        })
+        .then(data => {
+            if (data.url) {
+                // 3. Open Stripe's portal in a new tab
+                chrome.tabs.create({ url: data.url });
+            }
+        })
+        .catch(err => {
+            console.error("Billing Error:", err);
+            alert("Could not open billing portal. Please try again later.");
+        });
+    });
+});
 
 // Clear Button Logic
 clearBtn.addEventListener("click", () => {
@@ -468,6 +579,18 @@ claimInput.addEventListener("input", () => {
     inputError.style.display = "none";
   }
 });
+
+function handleSessionEnd() {
+    const statusMsg = document.getElementById("status-message");
+    statusMsg.innerText = "Session expired. Please log in.";
+    
+    // Switch buttons back to Login mode
+    authBtnAction.innerText = "Login";
+    upgradeSection.style.display = "none";
+    
+    // Clear the dead token
+    chrome.storage.local.remove(['token']);
+}
 
 // ── Manual Check Logic ────────────────────────────────────────────────────────
 checkBtn.addEventListener("click", autoCheck);
@@ -857,8 +980,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ── History API base URL ──────────────────────────────────────────────────────
-//const HISTORY_API = "https://api.healthfactchecker.site/history";
-const HISTORY_API = "http://localhost:8000/history";
+const HISTORY_API = "https://api.healthfactchecker.site/history";
+//const HISTORY_API = "http://localhost:8000/history";
  
 // ── Tab switching ─────────────────────────────────────────────────────────────
 const tabCheck   = document.getElementById("tabCheck");
@@ -1100,6 +1223,88 @@ function renderHistoryDetail(response, claimText) {
     }, 30);
   }
 }
+
+// ── Payment API base URL ──────────────────────────────────────────────────────
+//const PAYMENT_API = "https://api.healthfactchecker.site";
+const PAYMENT_API = "http://localhost:8000";
+
+async function checkLoginStatus() {
+    const upgradeSection = document.getElementById('upgrade-section');
+    const loginNotice = document.getElementById('login-notice');
+
+    // Match the key "token" from auth.js
+    const result = await chrome.storage.local.get(['token', 'userEmail', 'isActive']);
+    const token = result.token;
+
+    if (!token) {
+        showLoggedOut();
+        return;
+    }
+
+    // Backend call to verify token and get subscription status
+    try {
+        const response = await fetch('${PAYMENT_API}/user-status', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const status = await response.json();
+            
+            // Toggle visibility based on subscription status
+            if (!status.is_active) {
+                upgradeSection.style.display = 'block';
+                loginNotice.style.display = 'none';
+            } else {
+                upgradeSection.style.display = 'none';
+                loginNotice.innerHTML = "<p>⭐ Basic Account Active</p>";
+                loginNotice.style.display = 'block';
+            }
+        } else {
+            showLoggedOut();
+        }
+    } catch (error) {
+        console.error("Backend unreachable", error);
+        showLoggedOut();
+    }
+}
+function showLoggedOut() {
+    document.getElementById('upgrade-section').style.display = 'none';
+    document.getElementById('login-notice').style.display = 'block';
+}
+
+// THE MAIN ENTRY POINT
+document.addEventListener('DOMContentLoaded', () => {
+    // Run the login/subscription check
+    checkLoginStatus();
+
+    // button listener
+    const upgradeBtn = document.getElementById("upgrade-button");
+    upgradeBtn.addEventListener("click", async () => {
+        const data = await chrome.storage.local.get(["token", "userEmail"]);
+        
+        if (!data.userEmail) {
+            alert("Email not found. Please log in again.");
+            return;
+        }
+
+        try {
+            const response = await fetch(`${PAYMENT_API}/create-checkout-session?email=${data.userEmail}`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${data.token}` }
+            });
+            
+            const session = await response.json();
+            if (session.url) {
+                window.open(session.url, "_blank"); 
+            }
+        } catch (err) {
+            console.error("Stripe session failed:", err);
+            alert("Failed to start checkout.");
+        }
+    });
+});
  
 // ── Back button ───────────────────────────────────────────────────────────────
 document.getElementById("historyBackBtn").addEventListener("click", () => {

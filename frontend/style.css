@@ -1098,3 +1098,17 @@ blockquote.evidence-snippet {
   transform: none;
   box-shadow: none;
 }
+
+/* Apply variables to the subscription box */
+#subscription-details {
+    background-color: var(--plan-bg);
+    border: 1px solid var(--plan-border);
+    color: var(--plan-text);
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 10px;
+}
+
+#plan-name-label {
+    color: var(--plan-label);
+}
