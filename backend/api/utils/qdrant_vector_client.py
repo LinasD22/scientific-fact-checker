@@ -16,12 +16,14 @@ Thread Safety:
 - Lock is held during: search, store, cache checks, reranking
 """
 import hashlib
+import json
 import logging
 import os
 import time
 import uuid
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from typing import Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -46,18 +48,19 @@ from qdrant_client.models import (
 
 from MeshParser import log
 
-os.environ.setdefault("OMP_NUM_THREADS", "16")
+#os.environ.setdefault("OMP_NUM_THREADS", "16")
 os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
-os.environ.setdefault("ONNXRUNTIME_INTER_OP_NUM_THREADS", "16")
-os.environ.setdefault("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
+#os.environ.setdefault("ONNXRUNTIME_INTER_OP_NUM_THREADS", "16")
+#os.environ.setdefault("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
 
-from fastembed import TextEmbedding
+from fastembed import TextEmbedding, SparseTextEmbedding
+from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 
 COLLECTION = "fact_checker_cache"
 
-_EMBED_BATCH_SIZE  = 256
-_UPSERT_BATCH_SIZE = 512
+_EMBED_BATCH_SIZE  = 1024
+_UPSERT_BATCH_SIZE = 1024
 _THREAD_POOL_SIZE  = 8
 _FETCH_MULTIPLIER  = 2
 _RERANK_BATCH      = 16
@@ -89,7 +92,7 @@ class QdrantVectorClient:
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
         )
         self.min_score        = float(os.getenv("QDRANT_MIN_SCORE",        "0.65"))
-        self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE",      "-2.0"))
+        self.min_rerank_score = float(os.getenv("RERANKER_MIN_SCORE",      "-4.0"))
         self.global_min_score = float(os.getenv("QDRANT_GLOBAL_MIN_SCORE", "0.55"))
         self.chunk_size       = int(os.getenv("QDRANT_CHUNK_SIZE",         "800"))
         self.chunk_overlap    = int(os.getenv("QDRANT_CHUNK_OVERLAP",      "50"))
@@ -99,6 +102,7 @@ class QdrantVectorClient:
         self.model = TextEmbedding(
             model_name=self.model_name,
             providers=["CPUExecutionProvider"],
+            cuda=False,
         )
         self.vector_size = self._probe_vector_size()
         logging.info(
@@ -110,10 +114,28 @@ class QdrantVectorClient:
         self.reranker = CrossEncoder(
             self.reranker_model_name,
             device="cpu",
+            backend="onnx",
         )
         logging.info("Reranker ready.")
 
-        self.client = QdrantClient(path=self.cache_path)
+        self.splade_model_name = os.getenv(
+            "SPLADE_MODEL",
+            "prithivida/Splade_PP_en_v1",
+        )
+        logging.info(f"Loading SPLADE sparse model: {self.splade_model_name}")
+        self.splade_model = SparseTextEmbedding(
+            model_name=self.splade_model_name,
+            providers=["CPUExecutionProvider"],
+        )
+        logging.info("SPLADE model ready.")
+
+        qdrant_url = os.getenv("QDRANT_URL")
+        if qdrant_url:
+            self.client = QdrantClient(url=qdrant_url)
+            logging.info(f"Qdrant: serverio režimas → {qdrant_url}")
+        else:
+            self.client = QdrantClient(path=self.cache_path)
+            logging.info(f"Qdrant: lokalus failų režimas → {self.cache_path}")
 
         # Thread safety: RLock allows the same thread to acquire the lock multiple times
         # This is critical for nested operations (search → rerank) without deadlock
@@ -131,14 +153,12 @@ class QdrantVectorClient:
     # ── Vector size probe ──────────────────────────────────────────────────────
 
     def _probe_vector_size(self) -> int:
-        """Probe vector size - no lock needed, called during init."""
         vec = list(self.model.embed(["probe"]))[0]
         return len(vec)
 
     # ── Collection setup ───────────────────────────────────────────────────────
 
     def _ensure_collection(self) -> None:
-        """Ensure collection exists - no lock needed, called during init."""
         existing = [c.name for c in self.client.get_collections().collections]
         if COLLECTION not in existing:
             self.client.create_collection(
@@ -163,9 +183,8 @@ class QdrantVectorClient:
                 optimizers_config=OptimizersConfigDiff(
                     indexing_threshold=20000,
                     memmap_threshold=10000,
-                    max_optimization_threads=1,
-                    flush_interval_sec=30,
                 ),
+                on_disk_payload=True,
             )
             for field in ("fingerprint", "source", "source_db", "source_id"):
                 self.client.create_payload_index(
@@ -174,6 +193,9 @@ class QdrantVectorClient:
                     field_schema=PayloadSchemaType.KEYWORD,
                 )
             logging.info(f"Created persistent Qdrant collection '{COLLECTION}'")
+
+            config_dict = self.client.get_collection(COLLECTION).config.dict() # Konvertuojame i žodyna
+            print(json.dumps(config_dict, indent=2))
         else:
             count = self.client.count(collection_name=COLLECTION).count
             logging.info(
@@ -216,17 +238,13 @@ class QdrantVectorClient:
     def _batch_is_cached(self, fingerprints: list[str]) -> set[str]:
         """
         Batch fingerprint tikrinimas — VIENAS Qdrant scroll kvietimas.
-
-        Vietoj N atskirų scroll'ų (po vieną per straipsnį), siunčiamas
-        vienas should filtras su visais fingerprint'ais iš karto.
         Grąžina set'ą fingerprint'ų, kurie jau yra kešuoti.
         """
         if not fingerprints:
             return set()
 
         cached: set[str] = set()
-        # Skaidomame į batch'us — Qdrant should filtras veikia gerai iki ~500
-        _BATCH = 500
+        _BATCH = 200
         for i in range(0, len(fingerprints), _BATCH):
             batch = fingerprints[i : i + _BATCH]
             try:
@@ -254,7 +272,6 @@ class QdrantVectorClient:
     # ── Embedding (ONNX / fastembed) ───────────────────────────────────────────
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed texts - no lock needed, doesn't modify Qdrant."""
         results: list[list[float]] = []
         for i in range(0, len(texts), _EMBED_BATCH_SIZE):
             batch = texts[i : i + _EMBED_BATCH_SIZE]
@@ -414,9 +431,7 @@ class QdrantVectorClient:
         log.info(f"EMBED STARTING: {articles[0].get('pmc_id', 'unknown')} at {time.time()}")
         """
         Atlieka tik chunk'inimą ir embedding'ą (be upsert).
-
-        Šis metodas yra CPU-intensive ir gali būti kviečiamas lygiagrečiai
-        skirtinguose thread'uose. Grąžina:
+        Grąžina:
             - chunks: sąrašas chunk'ų tekstų
             - vectors: sąrašas vektorių
             - payloads: sąrašas payload'ų (metaduomenų)
@@ -638,23 +653,33 @@ class QdrantVectorClient:
         with self._collection_lock:
             cached_fps = self._batch_is_cached(all_fps)
 
+        new_articles_to_embed: list[dict] = []
+
         for title, text, fp in cache_results:
             if fp in cached_fps:
                 cached_titles.append(title)
                 logging.info(f"Cache HIT  → '{title}'")
             else:
                 meta = works_meta.get(title, {})
-                # _store_work acquires lock internally for upsert only
-                n = self._store_work(
-                    title, text, fp,
-                    source_db=meta.get("source_db", "lazy"),
-                    source_id=meta.get("source_id", ""),
-                    authors=meta.get("authors"),
-                    published_date=meta.get("published_date"),
-                    url=meta.get("url"),
-                )
+                new_articles_to_embed.append({
+                    "title": title,
+                    "text": text,
+                    "pmc_id": meta.get("source_id", ""),
+                    "source_db": meta.get("source_db", "lazy"),
+                    "authors": meta.get("authors"),
+                    "published_date": meta.get("published_date"),
+                    "url": meta.get("url"),
+                })
                 new_titles.append(title)
-                logging.info(f"Cache MISS → '{title}' stored {n} chunks")
+                logging.info(f"Cache MISS → '{title}' (queued for batch embed)")
+
+        # Batch embed visi nauji straipsniai vienu ONNX kvietimu
+        if new_articles_to_embed:
+            logging.info(f"Batch embedding {len(new_articles_to_embed)} naujų straipsnių...")
+            chunks, vectors, payloads, _ = self.embed_articles_bulk(new_articles_to_embed)
+            if chunks:
+                self.upsert_points(chunks, vectors, payloads)
+                logging.info(f"Batch embed baigtas: {len(chunks)} chunks iš {len(new_articles_to_embed)} straipsnių")
 
         all_titles = cached_titles + new_titles
         if not all_titles:
@@ -722,12 +747,199 @@ class QdrantVectorClient:
 
         return self._rerank(claim, candidates, top_k)
 
+    # ── BM25 helpers ───────────────────────────────────────────────────────────
+
+    _BM25_STOPWORDS: frozenset[str] = frozenset({
+        "the", "a", "an", "of", "in", "is", "to", "and", "or", "with",
+        "was", "were", "are", "be", "been", "this", "that", "for", "from",
+        "by", "at", "as", "on", "it", "its", "not", "we", "our", "their",
+        "these", "those", "also", "but", "had", "has", "have", "which",
+        "that", "than", "can", "may", "who", "when", "where", "into",
+    })
+
+    @staticmethod
+    def _tokenize_with_bigrams(text: str, stopwords: frozenset[str] = _BM25_STOPWORDS) -> list[str]:
+        """
+        Unigrams + bigrams po stopwords filtracijos.
+
+        "blood pressure medication" →
+            ["blood", "pressure", "medication", "blood_pressure", "pressure_medication"]
+
+        Bigrams pagerina medicininiams terminams:
+        "blood_pressure", "clinical_trial", "placebo_controlled" ir pan.
+        """
+        tokens = [t for t in text.lower().split() if t not in stopwords]
+        bigrams = [f"{tokens[i]}_{tokens[i + 1]}" for i in range(len(tokens) - 1)]
+        return tokens + bigrams
+
+    @staticmethod
+    def _prf_expand(
+        claim: str,
+        first_pass_chunks: list[dict[str, Any]],
+        top_n_docs: int = 3,
+        top_n_terms: int = 6,
+        stopwords: frozenset[str] = _BM25_STOPWORDS,
+    ) -> str:
+        """
+        Pseudo Relevance Feedback — išplečia query terminais iš top BM25 chunk'ų.
+
+        Prielaida: PMC/CORE jau grąžino relevantius straipsnius, todėl
+        top chunk'ai yra pakankamai patikimi terminų šaltiniai.
+
+        Args:
+            claim:              Originalus teiginys
+            first_pass_chunks:  BM25 pirmo pass'o rezultatai (surūšiuoti pagal score)
+            top_n_docs:         Iš kiek top chunk'ų rinkti terminus
+            top_n_terms:        Kiek expansion terminų pridėti
+            stopwords:          Filtruojami žodžiai
+
+        Returns:
+            Išplėstas query string'as
+        """
+        import re
+        from collections import Counter
+
+        top_texts = " ".join(c["text"] for c in first_pass_chunks[:top_n_docs])
+        words = re.findall(r'\b[a-zA-Z]{4,}\b', top_texts.lower())
+        words = [w for w in words if w not in stopwords]
+
+        claim_tokens = set(claim.lower().split())
+        term_counts = Counter(w for w in words if w not in claim_tokens)
+
+        expansion_terms = [t for t, _ in term_counts.most_common(top_n_terms)]
+        if not expansion_terms:
+            return claim
+
+        expanded = f"{claim} {' '.join(expansion_terms)}"
+        logging.info(f"PRF expansion: [{', '.join(expansion_terms)}]")
+        return expanded
+
+    def search_snippets_bm25(
+        self,
+        claim: str,
+        works: list[dict[str, Any]],
+        top_k: int = 5,
+        works_metadata: dict[str, dict[str, Any]] | None = None,
+        rerank_candidates: int = 30,
+        prf_first_pass: int = 10,
+        prf_min_chunks: int = 3,
+    ) -> list[dict[str, Any]]:
+        """
+        BM25 + bigrams + PRF (Pseudo Relevance Feedback) + cross-encoder reranking.
+
+        Pipeline:
+          1. Chunk'iname visus works
+          2. BM25 pirmas pass (bigrams) — renkame PRF kandidatus
+          3. PRF — išplečiame query terminais iš top chunk'ų
+          4. BM25 antras pass su išplėstu query
+          5. Cross-encoder reranking
+
+        Args:
+            claim:             Teiginys / query
+            works:             [{"title": ..., "text": ...}]
+            top_k:             Kiek geriausių snippet'ų grąžinti
+            works_metadata:    {title: {"published_date", "url", "authors", ...}}
+            rerank_candidates: Kiek BM25 kandidatų perduoti reranker'iui
+            prf_first_pass:    Kiek top chunk'ų naudoti PRF terminų rinkimui
+            prf_min_chunks:    Minimalus chunk'ų skaičius PRF aktyvavimui
+        """
+        if not works:
+            return []
+
+        works_meta = works_metadata or {}
+
+        # Chunk'iname visus works
+        all_chunks: list[dict[str, Any]] = []
+        for work in works:
+            title = work.get("title", "Unknown")
+            text  = work.get("text", "")
+            if not text:
+                continue
+            meta = works_meta.get(title, {})
+            for chunk in self.splitter.split_text(text):
+                all_chunks.append({
+                    "text":           chunk,
+                    "title":          title,
+                    "source":         title,
+                    "score":          0.0,
+                    "rerank_score":   -5.0,
+                    "published_date": meta.get("published_date"),
+                    "url":            meta.get("url"),
+                    "authors":        meta.get("authors"),
+                    "source_db":      meta.get("source_db", "lazy"),
+                    "source_id":      meta.get("source_id", ""),
+                })
+
+        if not all_chunks:
+            logging.warning("search_snippets_bm25: nėra chunk'ų iš works")
+            return []
+
+        # Tokenizuojame corpus su bigrams
+        tokenized_corpus = [self._tokenize_with_bigrams(c["text"]) for c in all_chunks]
+        bm25 = BM25Okapi(tokenized_corpus)
+
+        # ── Pass 1: PRF terminų rinkimas ────────────────────────────────────────
+        first_tokens = self._tokenize_with_bigrams(claim)
+        first_scores  = bm25.get_scores(first_tokens)
+
+        first_indices = sorted(
+            range(len(first_scores)),
+            key=lambda i: first_scores[i],
+            reverse=True,
+        )
+        first_pass_chunks = [
+            all_chunks[i]
+            for i in first_indices[:prf_first_pass]
+            if first_scores[i] > 0
+        ]
+
+        # ── PRF expansion ───────────────────────────────────────────────────────
+        if len(first_pass_chunks) >= prf_min_chunks:
+            expanded_claim = self._prf_expand(claim, first_pass_chunks)
+        else:
+            expanded_claim = claim
+            logging.info(
+                f"search_snippets_bm25: PRF praleistas "
+                f"(tik {len(first_pass_chunks)} chunk'ų < min {prf_min_chunks})"
+            )
+
+        # ── Pass 2: galutinis BM25 scoring su išplėstu query ───────────────────
+
+        final_tokens = self._tokenize_with_bigrams(expanded_claim)
+        final_scores  = bm25.get_scores(final_tokens)
+
+        top_indices = sorted(
+            range(len(final_scores)),
+            key=lambda i: final_scores[i],
+            reverse=True,
+        )[:rerank_candidates]
+
+        candidates = []
+        for i in top_indices:
+            if final_scores[i] <= 0:
+                break
+            chunk = dict(all_chunks[i])
+            chunk["score"] = round(float(final_scores[i]), 4)
+            candidates.append(chunk)
+
+        if not candidates:
+            logging.warning("search_snippets_bm25: visi BM25 scores == 0 (query terminai nerasti)")
+            return []
+
+        logging.info(
+            f"search_snippets_bm25: {len(all_chunks)} chunks → "
+            f"{len(candidates)} BM25 kandidatai → reranking"
+        )
+
+        return self._rerank(claim, candidates, top_k)
+
     def search_global(
         self,
         claim: str,
         top_k: int = 3,
         min_score: float | None = None,
     ) -> list[dict[str, Any]]:
+        logging.info(f"--search_global START {claim} : {datetime.now().strftime("%H:%M:%S.%f")} ")
         threshold = min_score if min_score is not None else self.global_min_score
 
         query_vector = self._embed([claim])[0]

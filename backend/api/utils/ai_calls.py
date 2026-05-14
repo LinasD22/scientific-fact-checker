@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -106,6 +107,7 @@ class AICallClient:
         logging.info(f"AICallClient using provider: {self.provider}")
 
     def _call_ai(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        logging.info(f"_call_ai START: {datetime.now().strftime("%H:%M:%S.%f")}")
         try:
             content = _PROVIDERS[self.provider](system_prompt, user_prompt).strip()
         except Exception as e:
@@ -120,7 +122,7 @@ class AICallClient:
             }
 
         # Log the raw content for debugging
-        logging.info(f"AI Response: {content}")
+        logging.info(f"_call_ai Response: {datetime.now().strftime("%H:%M:%S.%f")} {content} ")
 
         # Strip markdown code blocks if present
         if content.startswith("```"):
@@ -393,9 +395,8 @@ def check_facts_with_ai(
             summary="No source texts provided.",
             agreement_score=0.0,
         )
-
+    logging.info(f"--check_facts_with_ai START {original_claim} : {datetime.now().strftime("%H:%M:%S.%f")}")
     result = ai_client.check_all_facts(original_claim, source_texts)
-
     responses = []
     individual_results_raw = result.get("individual_results", [])
 

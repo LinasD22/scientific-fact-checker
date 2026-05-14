@@ -338,6 +338,7 @@ class FactCheckerService:
     ) -> FactCheckResult:
         search_query = query or original_claim
 
+        logging.info(f"--check_claim START {search_query} : {datetime.now().strftime("%H:%M:%S.%f")} ")
         logging.info(f"ALL PARAMETERS limit {limit} global search threshold {global_search_threshold} global min results {global_min_results}")
 
         # ── Step 1: Bandyk global Qdrant search (greita, be API calls) ──────────
@@ -363,7 +364,7 @@ class FactCheckerService:
                 }
                 for s in global_snippets
             ]
-            
+
             # Build articles_used from unique snippets (grouped by title)
             seen_titles = {}
             articles_used = []
@@ -381,10 +382,10 @@ class FactCheckerService:
                         index=article_index,
                     ))
                     article_index += 1
-            
+
             # Create article_index_map for linking snippets to articles
             article_index_map = {title.lower().strip(): idx for title, idx in seen_titles.items()}
-            
+
             # Grąžinam rezultatą be API calls
             individual_responses, comparison = check_facts_with_ai(
                 original_claim=original_claim,
@@ -451,9 +452,9 @@ class FactCheckerService:
             }
             for w in works_with_text
         ]
-        
-        # Step 2: Chunk, embed and search for best snippets using qdrant
-        # Build metadata map for storing article info in Qdrant (with authors from unique_works)
+
+        # Step 2: BM25 + bigrams + PRF + rerank
+        # Metadata map: title → {authors, published_date, url}
         works_metadata = {}
         for w in works_with_text:
             title_key = w.title.lower().strip()
@@ -463,8 +464,8 @@ class FactCheckerService:
                 "published_date": w.published_date,
                 "url": w.download_url,
             }
-        
-        snippets = self.vector_embed_client.search_snippets_from_texts(
+
+        snippets = self.vector_embed_client.search_snippets_bm25(
             claim=original_claim,
             works=works_for_qdrant,
             top_k=5,

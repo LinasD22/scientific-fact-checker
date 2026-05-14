@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from qdrant_client import QdrantClient
 from starlette.middleware.cors import CORSMiddleware
 
 # nuskaito app/.env
