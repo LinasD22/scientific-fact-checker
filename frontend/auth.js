@@ -148,9 +148,9 @@ document.getElementById("authBtn").addEventListener("click", async () => {
 
   // Use production URL from main branch, fallback to local for dev if needed
   
-  //const url = isLogin 
-    //? "http://api.healthfactchecker.site/auth/login" 
-    //: "http://api.healthfactchecker.site/auth/register";
+  // const url = isLogin 
+  //   ? "http://api.healthfactchecker.site/auth/login" 
+  //   : "http://api.healthfactchecker.site/auth/register";
     
       const url = isLogin
     ? "http://localhost:8000/auth/login"

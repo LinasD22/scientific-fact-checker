@@ -133,6 +133,7 @@ const translations = {
     checkFact: "Check Fact",
     checking: "Checking...",
     confidence: "Confidence",
+    verdictBreakdown: "Verdict Breakdown",
     individualClaims: "Individual Claims",
     sourcesUsedPrefix: "Sources Used",
     evidenceBySource: "Evidence by Source",
@@ -188,6 +189,7 @@ const translations = {
     checkFact: "Tikrinti faktą",
     checking: "Tikrinama...",
     confidence: "Patikimumas",
+    verdictBreakdown: "Verdikto Paskirstymas",
     individualClaims: "Atskiri teiginiai",
     sourcesUsedPrefix: "Naudoti šaltiniai",
     evidenceBySource: "Įrodymai pagal šaltinį",
@@ -659,6 +661,8 @@ function autoCheck() {
         if (evidenceSection) evidenceSection.style.display = "none";
         factsContainer.style.display = "block";
 
+        renderVerdictDistributionChart(facts);
+
         facts.forEach(fact => {
           const factDiv = document.createElement("div");
           factDiv.className = "fact-item";
@@ -700,6 +704,8 @@ function autoCheck() {
         finalExplanation.style.display = "block";
         if (evidenceSection) evidenceSection.style.display = "block";
         factsContainer.style.display = "none";
+
+        renderVerdictDistributionChart([]);
 
         // Update the big ring and text
         const verdictEl = document.getElementById("finalVerdict");
@@ -770,6 +776,157 @@ function getVerdictClass(verdict) {
   if (vText.includes("refuted") || vText.includes("false") || vText.includes("inaccurate") || vText.includes("misleading"))
     return "false";
   return "uncertain";
+}
+
+function normalizeVerdictForChart(raw) {
+  const text = (raw || "").toLowerCase();
+  if (text.includes("partially") || text.includes("partially_verified")) return "partially_verified";
+  if (text.includes("conflicting")) return "conflicting";
+  if (text.includes("supported") || text.includes("true") || text.includes("verified") || text.includes("accurate")) return "verified";
+  if (text.includes("refuted") || text.includes("false") || text.includes("inaccurate") || text.includes("misleading")) return "false";
+  return "unverifiable"; // default / uncertain
+}
+
+function aggregateVerdictCounts(facts) {
+  const counts = {
+    verified: 0,
+    false: 0,
+    unverifiable: 0,
+    conflicting: 0,
+    partially_verified: 0
+  };
+  
+  for (const fact of facts) {
+    const canonical = normalizeVerdictForChart(fact.verdict || fact.status || "");
+    counts[canonical]++;
+  }
+  return counts;
+}
+
+function renderVerdictDistributionChart(facts) {
+  const container = document.getElementById("verdictDistribution");
+  const svg = document.getElementById("verdictDonutSvg");
+  const legend = document.getElementById("verdictDonutLegend");
+  const centerText = document.getElementById("donutCenterText");
+  
+  if (!facts || facts.length <= 1) {
+    if (container) container.style.display = "none";
+    if (svg) svg.innerHTML = "";
+    if (legend) legend.innerHTML = "";
+    return;
+  }
+  
+  if (container) container.style.display = "block";
+  
+  const counts = aggregateVerdictCounts(facts);
+  const total = facts.length;
+  
+  if (centerText) {
+    centerText.textContent = total;
+  }
+  
+  const classMap = {
+    verified: "donut-slice-true",
+    false: "donut-slice-false",
+    unverifiable: "donut-slice-uncertain",
+    conflicting: "donut-slice-conflicting",
+    partially_verified: "donut-slice-partially"
+  };
+  
+  // Draw SVG
+  if (svg) {
+    svg.innerHTML = "";
+    
+    const ariaLabel = Object.entries(counts)
+      .filter(([key, count]) => count > 0)
+      .map(([key, count]) => `${count} ${translateVerdict(key)}`)
+      .join(", ");
+    svg.setAttribute("aria-label", `Verdict distribution: ${ariaLabel}`);
+    
+    let currentAngle = 0;
+    const cx = 60;
+    const cy = 60;
+    const r = 52;
+    const innerR = 30;
+    
+    // Filter out zero counts
+    const slices = Object.entries(counts).filter(([key, count]) => count > 0);
+    
+    slices.forEach(([key, count]) => {
+      const sliceAngle = (count / total) * 360;
+      
+      // If it's a full circle
+      if (sliceAngle === 360) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${cy + r} A ${r} ${r} 0 1 1 ${cx} ${cy - r} M ${cx} ${cy - innerR} A ${innerR} ${innerR} 0 1 0 ${cx} ${cy + innerR} A ${innerR} ${innerR} 0 1 0 ${cx} ${cy - innerR}`);
+        path.setAttribute("class", `donut-slice ${classMap[key]}`);
+        svg.appendChild(path);
+      } else {
+        const startAngleRad = (currentAngle - 90) * Math.PI / 180;
+        const endAngleRad = (currentAngle + sliceAngle - 90) * Math.PI / 180;
+        
+        const x1 = cx + r * Math.cos(startAngleRad);
+        const y1 = cy + r * Math.sin(startAngleRad);
+        const x2 = cx + r * Math.cos(endAngleRad);
+        const y2 = cy + r * Math.sin(endAngleRad);
+        
+        const ix1 = cx + innerR * Math.cos(startAngleRad);
+        const iy1 = cy + innerR * Math.sin(startAngleRad);
+        const ix2 = cx + innerR * Math.cos(endAngleRad);
+        const iy2 = cy + innerR * Math.sin(endAngleRad);
+        
+        const largeArcFlag = sliceAngle > 180 ? 1 : 0;
+        
+        const d = [
+          `M ${x1} ${y1}`,
+          `A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+          `L ${ix2} ${iy2}`,
+          `A ${innerR} ${innerR} 0 ${largeArcFlag} 0 ${ix1} ${iy1}`,
+          "Z"
+        ].join(" ");
+        
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d);
+        path.setAttribute("class", `donut-slice ${classMap[key]}`);
+        svg.appendChild(path);
+      }
+      
+      currentAngle += sliceAngle;
+    });
+  }
+  
+  // Draw Legend
+  if (legend) {
+    legend.innerHTML = "";
+    
+    // Sort by count descending
+    const sortedKeys = Object.entries(counts)
+      .filter(([key, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+      
+    sortedKeys.forEach(([key, count]) => {
+      const row = document.createElement("div");
+      row.className = "donut-legend-row";
+      
+      const swatch = document.createElement("div");
+      swatch.className = `donut-legend-swatch ${classMap[key]}`;
+      
+      const label = document.createElement("span");
+      label.className = "donut-legend-label";
+      label.textContent = translateVerdict(key);
+      label.setAttribute("data-verdict-key", key);
+      
+      const countEl = document.createElement("span");
+      countEl.className = "donut-legend-count";
+      countEl.textContent = count;
+      
+      row.appendChild(swatch);
+      row.appendChild(label);
+      row.appendChild(countEl);
+      
+      legend.appendChild(row);
+    });
+  }
 }
 
 function generateSnippetsHtml(snippets) {
@@ -932,6 +1089,10 @@ function retranslateExplanations() {
             }
         }
     }
+
+    if (lastResponse.individual_facts && lastResponse.individual_facts.length > 1) {
+        renderVerdictDistributionChart(lastResponse.individual_facts);
+    }
 }
 
 function updateLanguageButtonText() {
@@ -980,8 +1141,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ── History API base URL ──────────────────────────────────────────────────────
-const HISTORY_API = "https://api.healthfactchecker.site/history";
-//const HISTORY_API = "http://localhost:8000/history";
+// const HISTORY_API = "https://api.healthfactchecker.site/history";
+const HISTORY_API = "http://localhost:8000/history";
  
 // ── Tab switching ─────────────────────────────────────────────────────────────
 const tabCheck   = document.getElementById("tabCheck");
