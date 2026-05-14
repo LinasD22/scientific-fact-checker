@@ -105,7 +105,7 @@ if (chrome.contextMenus) {
 
     if (request.type === "OCR_REQUEST") {
       const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
-      //const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
+      // const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
       try {
         // Reconstruct Blob from base64
         const binary = atob(request.data);
@@ -169,9 +169,9 @@ if (chrome.contextMenus) {
 
     // Determine your URL (use local for testing, ddns for production)
     //server
-    //const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
+    const API_URL = "https://api.healthfactchecker.site/api/fact-check/search";
     //local
-    const API_URL = "http://localhost:8000/api/fact-check/search";
+    // const API_URL = "http://localhost:8000/api/fact-check/search";
 
     // Retrieve the token from storage
     const { token } = await chrome.storage.local.get("token");

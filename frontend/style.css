@@ -10,6 +10,8 @@
   --score-high: #22c55e; /* Green */
   --score-mid: #eab308;  /* Yellow */
   --score-low: #ef4444;  /* Red */
+  --score-conflicting: #f97316; /* Orange */
+  --score-partially: #3b82f6; /* Blue */
 }
 
 body.dark-mode {
@@ -19,6 +21,8 @@ body.dark-mode {
   --text-muted: #94a3b8;
   --border-color: #334155;
   --primary: #60a5fa; /* Slightly lighter blue for dark backgrounds */
+  --score-conflicting: #fb923c;
+  --score-partially: #60a5fa;
 }
 
 /* Update these rules in your style.css */
@@ -1036,6 +1040,81 @@ blockquote.evidence-snippet {
 .history-item-verdict.true   { background: var(--score-high); }
 .history-item-verdict.false  { background: var(--score-low); }
 .history-item-verdict.uncertain { background: var(--score-mid); }
+
+/* Donut Chart */
+.donut-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.donut-chart-wrapper {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+}
+
+.donut-center-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.donut-slice {
+  stroke: var(--card-bg);
+  stroke-width: 2px;
+}
+
+.donut-slice-true { fill: var(--score-high); }
+.donut-slice-false { fill: var(--score-low); }
+.donut-slice-uncertain { fill: var(--score-mid); }
+.donut-slice-conflicting { fill: var(--score-conflicting); }
+.donut-slice-partially { fill: var(--score-partially); }
+
+.donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-grow: 1;
+}
+
+.donut-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.donut-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.donut-legend-swatch.donut-slice-true { background: var(--score-high); }
+.donut-legend-swatch.donut-slice-false { background: var(--score-low); }
+.donut-legend-swatch.donut-slice-uncertain { background: var(--score-mid); }
+.donut-legend-swatch.donut-slice-conflicting { background: var(--score-conflicting); }
+.donut-legend-swatch.donut-slice-partially { background: var(--score-partially); }
+
+.donut-legend-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  flex-grow: 1;
+}
+
+.donut-legend-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
 
 .history-item-body {
   flex: 1;

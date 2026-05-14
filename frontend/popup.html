@@ -100,6 +100,17 @@
         <div id="finalExplanation" class="explanation"></div>
 
         <div id="individualFactsContainer" style="display: none;">
+          <div id="verdictDistribution" style="display: none;">
+            <div style="font-size: 13px; font-weight: 700; text-align: left; margin-bottom: 10px;" data-i18n="verdictBreakdown">Verdict Breakdown</div>
+            <div class="donut-container">
+              <div class="donut-chart-wrapper">
+                <svg id="verdictDonutSvg" width="120" height="120" viewBox="0 0 120 120"></svg>
+                <div class="donut-center-text" id="donutCenterText"></div>
+              </div>
+              <div id="verdictDonutLegend" class="donut-legend"></div>
+            </div>
+          </div>
+
           <hr class="divider">
           <div style="font-size: 13px; font-weight: 700; text-align: left; margin-bottom: 10px;" data-i18n="individualClaims">Individual Claims</div>
           <div id="individualFactsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
