@@ -147,11 +147,11 @@ document.getElementById("authBtn").addEventListener("click", async () => {
   const password = document.getElementById("password").value;
 
   // Use production URL from main branch, fallback to local for dev if needed
-  /*
-  const url = isLogin 
-    ? "http://api.healthfactchecker.site/auth/login" 
-    : "http://api.healthfactchecker.site/auth/register";
-    */
+  
+  //const url = isLogin 
+    //? "http://api.healthfactchecker.site/auth/login" 
+    //: "http://api.healthfactchecker.site/auth/register";
+    
       const url = isLogin
     ? "http://localhost:8000/auth/login"
     : "http://localhost:8000/auth/register";
@@ -179,8 +179,17 @@ document.getElementById("authBtn").addEventListener("click", async () => {
     const data = await response.json();
 
     if (response.ok) {
-		chrome.storage.local.set({ token: data.access_token, userEmail: email, userId: data.user_id }, () => {
-        alert("Success!");
+		// object to store in chrome.storage with all necessary session info
+      const sessionData = {
+        token: data.access_token,
+        userEmail: email,
+        userId: data.user_id,
+        plan: data.subscription ? data.subscription.plan : 'free',
+        isActive: data.subscription ? data.subscription.is_active : false
+      };
+
+      chrome.storage.local.set(sessionData, () => {
+        alert("Success! You can now close this tab and open the extension.");
         window.close();
       });
     } else {

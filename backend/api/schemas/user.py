@@ -1,3 +1,4 @@
+# --- API SCHEMAS for data validation (Not Tables) ---
 from pydantic import BaseModel, EmailStr
 
 class UserCreate(BaseModel):
@@ -8,5 +9,5 @@ class UserCreate(BaseModel):
 
 # Schema for the login request
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str

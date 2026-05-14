@@ -35,6 +35,8 @@ class User(SQLModel, table=True):
     email: str = Field(unique=True, max_length=255, sa_column_kwargs={"name": "El_pastas"})
     
     auth_email: str = Field(foreign_key="Auth.El_pastas", sa_column_kwargs={"name": "fk_Prisijungimas"})
+    # Links the person to Stripe customer ID for payment processing and subscription management
+    stripe_customer_id: Optional[str] = Field(default=None, sa_column_kwargs={"name": "Stripe_Kliento_ID"})
 
 class Subscription(SQLModel, table=True):
     __tablename__ = "Subscription"
@@ -47,6 +49,10 @@ class Subscription(SQLModel, table=True):
     status_id: int = Field(foreign_key="Status.Id", sa_column_kwargs={"name": "fk_Busena"})
     user_id: int = Field(foreign_key="User.Id", sa_column_kwargs={"name": "fk_Naudotojas"})
 
+    # Links this specific plan to Stripe subscription ID for billing and management
+    stripe_subscription_id: Optional[str] = Field(default=None, sa_column_kwargs={"name": "Stripe_Prenumeratos_ID"})
+    plan_name: str = Field(default="free", sa_column_kwargs={"name": "Plano_Pavadinimas"})
+
 class Plan(SQLModel, table=True):
     __tablename__ = "Plan"
     
@@ -56,7 +62,9 @@ class Plan(SQLModel, table=True):
     duration: int = Field(sa_column_kwargs={"name": "Trukme"})
     query_limit: int = Field(sa_column_kwargs={"name": "Uzklausu_limitas"})
     
-    subscription_id: int = Field(foreign_key="Subscription.Id", sa_column_kwargs={"name": "fk_Prenumerata"}, unique=True)
+    fk_subscription: Optional[int] = Field(default=None, foreign_key="Subscription.Id", 
+                                           nullable=True, sa_column_kwargs={"name": "fk_Prenumerata"})
+    
 
 class Payment(SQLModel, table=True):
     __tablename__ = "Payment"

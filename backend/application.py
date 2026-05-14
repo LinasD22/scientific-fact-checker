@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from urllib.request import Request
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from starlette.middleware.cors import CORSMiddleware
@@ -34,7 +35,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -48,6 +48,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
 # Include fact-check routes
 app.include_router(fact_check_router, prefix="/api", tags=["fact-check"])
 
@@ -70,6 +71,19 @@ app.include_router(auth.router)
 
 from api.controllers import history
 app.include_router(history.router)
+
+from api.controllers.payments import router as payment_router
+app.include_router(payment_router)
+
+#  TESTING ONLY
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"Incoming request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    return response
+
+# Include payment routes
+from api.controllers import payments
 
 if __name__ == "__main__":
     os.system(f"fastapi dev {str(Path(__file__).parent)}/application.py --host 0.0.0.0 --port 8000") #8080

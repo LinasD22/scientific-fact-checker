@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Success - Plan Activated</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f7f8f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    section {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      text-align: center;
+      max-width: 400px;
+    }
+    .product svg {
+      margin-bottom: 20px;
+    }
+    h3 {
+      color: #1a1f36;
+      margin-bottom: 10px;
+    }
+    button {
+      background-color: #635bff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      width: 100%;
+      margin-top: 20px;
+    }
+    button:hover {
+      background-color: #5851ea;
+    }
+  </style>
+</head>
+<body>
+  <section>
+    <div class="product">
+      <svg width="40" height="40" viewBox="0 0 14 16">
+          <g fill="#635bff">
+              <path d="M127,50 L126,50 C123.238576,50 121,47.7614237 121,45 C121,42.2385763 123.238576,40 126,40 L135,40 L135,56 L133,56 L133,42 L129,42 L129,56 L127,56 L127,50 Z M127,48 L127,42 L126,42 C124.343146,42 123,43.3431458 123,45 C123,46.6568542 124.343146,48 126,48 L127,48 Z" transform="translate(-121, -40)"/>
+          </g>
+      </svg>
+      <div class="description">
+        <h3>Payment Successful!</h3>
+        <p>Your Starter plan is now active. You can close this window and refresh the extension.</p>
+      </div>
+      <p>You can now safely return to the extension.</p>
+    <button onclick="closeTab()" class="button">Close This Tab</button>
+    </div>
+
+    <form action="/create-portal-session" method="POST">
+        <input type="hidden" id="session-id" name="session_id" value="" />
+        <button id="checkout-and-portal-button" type="submit">Manage Billing & Invoices</button>
+    </form>
+  </section>
+
+
+<script>
+  function closeTab() {
+    window.close();
+    // If window.close() fails (blocked by browser), change the button text
+    setTimeout(() => {
+      const btn = document.querySelector('.button');
+      btn.textContent = "Done! You can close this tab";
+      btn.style.backgroundColor = "#6e7681"; // Optional: make it gray to look 'finished'
+    }, 500);
+  }
+</script>
+
+  <script>
+    // Moved to the bottom so elements are loaded first
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session_id');
+
+    if (sessionId) {
+      document.getElementById('session-id').value = sessionId;
+      console.log("Session ID loaded:", sessionId);
+    } else {
+      document.getElementById('checkout-and-portal-button').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
