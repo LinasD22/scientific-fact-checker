@@ -435,6 +435,10 @@ function updateUI() {
       }
   });
 
+  // ── Payment API base URL ──────────────────────────────────────────────────────
+const PAYMENT_API = "https://api.healthfactchecker.site";
+//const PAYMENT_API = "http://localhost:8000";
+
 	chrome.storage.local.get(['token', 'userEmail', 'guestUsage', 'plan', 'isActive'], (result) => {
 		const today = new Date().toLocaleDateString();
 		const checkBtn = document.getElementById("checkBtn");
@@ -446,7 +450,7 @@ function updateUI() {
 			authBtnAction.innerText = t("logout");
 
       // 2. Fetch the latest status from your FastAPI server
-        fetch('http://127.0.0.1:8000/user-status', {
+        fetch(`${PAYMENT_API}/user-status`, {
             headers: {
                 'Authorization': `Bearer ${result.token}`}})
         .then(async response => {
@@ -542,7 +546,7 @@ document.getElementById("manage-billing-link").addEventListener("click", (e) => 
         }
 
         // 2. Call the portal endpoint with the Bearer token
-        fetch('http://127.0.0.1:8000/create-portal-session2', {
+        fetch(`${PAYMENT_API}/create-portal-session2`, {
             headers: {
                 'Authorization': `Bearer ${result.token}`
             }
@@ -1620,9 +1624,6 @@ function _renderDonutForHistory(facts, container) {
   }
 }
 
-// ── Payment API base URL ──────────────────────────────────────────────────────
-const PAYMENT_API = "https://api.healthfactchecker.site";
-//const PAYMENT_API = "http://localhost:8000";
 
 async function checkLoginStatus() {
     const upgradeSection = document.getElementById('upgrade-section');
