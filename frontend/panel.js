@@ -218,14 +218,17 @@ function injectPanel(initialMode, initialWidth) {
           box-shadow: 0 10px 25px rgba(0,0,0,0.2);
           border: 1px solid #e2e8f0;
           transition: height 0.2s ease-in-out;
-          display: block;
+          display: flex;
+          flex-direction: column;
         }
         #factCheckerIframe {
           width: 100%;
-          height: 100%;
+          flex: 1 1 auto;
           min-height: 180px;
+          height: 100%;
           border: none;
           display: block;
+          overflow-y: auto;
         }
         #factCheckerModeTab { display: none !important; }
         #factCheckerResizeHandle { display: none !important; }
