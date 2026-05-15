@@ -18,8 +18,8 @@ const ocrFileName   = document.getElementById("ocrFileName");
 const ocrSpinner    = document.getElementById("ocrSpinner");
 const ocrError      = document.getElementById("ocrError");
 
-//const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
- const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
+const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
+ //const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
 
 // ── OCR helpers ───────────────────────────────────────────────────────────────
 function ocrShowState(state, message = "") {
@@ -137,7 +137,6 @@ const translations = {
     individualClaims: "Individual Claims",
     sourcesUsedPrefix: "Sources Used",
     evidenceBySource: "Evidence by Source",
-    rawJsonResponse: "Raw JSON Response",
     verdict: {
       verified: "VERIFIED",
       false: "FALSE",
@@ -193,7 +192,6 @@ const translations = {
     individualClaims: "Atskiri teiginiai",
     sourcesUsedPrefix: "Naudoti šaltiniai",
     evidenceBySource: "Įrodymai pagal šaltinį",
-    rawJsonResponse: "Grynas JSON atsakas",
     verdict: {
       verified: "PATVIRINTAS",
       false: "KLAIDINGA",
@@ -619,7 +617,19 @@ function autoCheck() {
 
   checkBtn.disabled = true;
   btnText.textContent = t("checking");
-  resultCard.classList.add("hidden");
+
+  // Show the result card immediately with a spinning ring animation
+  resultCard.classList.remove("hidden");
+  resultCard.classList.add("checking");
+  document.getElementById("scoreValue").textContent = "…";
+  document.getElementById("finalVerdict").textContent = "";
+  document.getElementById("finalExplanation").textContent = "";
+  document.getElementById("individualFactsContainer").style.display = "none";
+  const _evSecLoading = document.querySelector(".evidence-section");
+  if (_evSecLoading) _evSecLoading.style.display = "none";
+  document.querySelector(".scoreRingContainer").style.display = "block";
+  document.querySelector(".resultHeader").style.display = "flex";
+  document.getElementById("finalExplanation").style.display = "block";
   sendHeight();
 
   chrome.runtime.sendMessage(
@@ -627,6 +637,8 @@ function autoCheck() {
     (response) => {
       checkBtn.disabled = false;
       btnText.textContent = t("checkFact");
+      // Remove the loading spinner state before rendering results
+      resultCard.classList.remove("checking");
 
       if (response.verdict === "Limit Reached") {
         updateUI();
@@ -716,7 +728,7 @@ function autoCheck() {
         verdictEl.className = `verdict ${vClass}`;
         finalExplanation.textContent = getLocalizedExplanation(response);
 
-        updateScoreRing((response.score || 0) * 100);
+        updateScoreRing((response.score || 0) * 100, response.verdict);
       }
 
       // Populate Evidence List (for individual results)
@@ -753,11 +765,6 @@ function autoCheck() {
       updateArticlesList(response.articles_used || []);
 
       resultCard.classList.remove("hidden");
-      document.getElementById("rawResponse").textContent = JSON.stringify(
-        response,
-        null,
-        2
-      );
 
        setTimeout(sendHeight, 100);
 
@@ -996,13 +1003,23 @@ function sendHeight() {
   // Use the container's scrollHeight (the true content height, unclipped)
   // so that float-mode can resize to fit all content without scrolling.
   const containerEl = document.querySelector(".container");
-  const height = containerEl ? containerEl.scrollHeight + 16 : document.body.scrollHeight;
+  const height = containerEl ? containerEl.scrollHeight : document.body.scrollHeight;
   window.parent.postMessage({ type: "RESIZE_PANEL", height: height }, "*");
 }
 
 window.addEventListener("load", sendHeight);
 
-function updateScoreRing(score) {
+function verdictToRingColor(verdict) {
+  const vClass = getVerdictClass(verdict || "");
+  if (vClass === "true")  return "var(--score-high)";
+  if (vClass === "false") return "var(--score-low)";
+  const vText = (verdict || "").toLowerCase();
+  if (vText.includes("conflicting")) return "var(--score-conflicting)";
+  if (vText.includes("partial"))     return "var(--score-partially)";
+  return "var(--score-mid)";
+}
+
+function updateScoreRing(score, verdict) {
   const ring = document.getElementById("ringProgress");
   if (!ring) return;
 
@@ -1016,14 +1033,8 @@ function updateScoreRing(score) {
   const offset = circumference - (roundedScore / 100) * circumference;
   ring.style.strokeDashoffset = offset;
 
-  // Color logic
-  if (roundedScore >= 70) {
-    ring.style.stroke = "var(--score-high)";
-  } else if (roundedScore >= 40) {
-    ring.style.stroke = "var(--score-mid)";
-  } else {
-    ring.style.stroke = "var(--score-low)";
-  }
+  // Color matches verdict badge
+  ring.style.stroke = verdictToRingColor(verdict);
 
   animateScoreText(roundedScore);
 }
@@ -1118,7 +1129,9 @@ window.addEventListener("message", (event) => {
       btn.title = event.data.mode === "side" ? "Switch to floating panel" : "Dock to side panel";
     }
     // Toggle float-mode so CSS can remove max-height clamping
-    document.body.classList.toggle("float-mode", event.data.mode === "float");
+    const isFloat = event.data.mode === "float";
+    document.body.classList.toggle("float-mode", isFloat);
+    document.documentElement.classList.toggle("float-mode", isFloat);
     sendHeight();
   }
 });
@@ -1141,8 +1154,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ── History API base URL ──────────────────────────────────────────────────────
-// const HISTORY_API = "https://api.healthfactchecker.site/history";
-const HISTORY_API = "http://localhost:8000/history";
+ const HISTORY_API = "https://api.healthfactchecker.site/history";
+// HISTORY_API = "http://localhost:8000/history";
  
 // ── Tab switching ─────────────────────────────────────────────────────────────
 const tabCheck   = document.getElementById("tabCheck");
@@ -1302,92 +1315,314 @@ async function loadHistoryDetail(userId, queryId, token, claimText) {
 // ── Render a history detail using the same card HTML as live results ──────────
 function renderHistoryDetail(response, claimText) {
   const detailContent = document.getElementById("historyDetailContent");
- 
-  // Build the same card structure your live result uses
-  const vClass = getVerdictClass(response.final_verdict || "unverifiable");
-  const verdictLabel = translateVerdict(response.final_verdict || "unverifiable");
-  const scorePercent = Math.round((response.facts?.[0]?.agreement_score || 0) * 100);
-  const explanation = currentLang === "lt"
-    ? (response.facts?.[0]?.summary_lithuanian || response.facts?.[0]?.summary || "")
-    : (response.facts?.[0]?.summary || "");
- 
-  // Build articles HTML from the nested facts structure
-  const articles = response.facts?.flatMap(f => f.articles_used || []) || [];
-  const articlesHtml = articles.length > 0
-    ? articles.map(a => `
-        <div class="article-item">
-          <a href="${escapeHtml(a.url)}" target="_blank" class="article-title">${escapeHtml(a.title || "")}</a>
-          <div class="article-meta">${escapeHtml(a.source || "")} · ${a.published_date || t("dateUnknown")}</div>
-        </div>`).join("")
-    : `<p class="article-meta">${t("noArticles")}</p>`;
- 
+
+  // ── Map history API shape → same shape that the live check uses ──────────────
+  // History API: response.facts[] each has { original_fact, agreement_score,
+  //   final_verdict, summary, summary_lithuanian, articles_used, individual_results }
+  // Live check:  individual_facts[] each has { claim, score, verdict,
+  //   explanation, explanation_lt, sources, snippets }
+
+  const rawFacts = response.facts || [];
+
+  const mappedFacts = rawFacts.map(f => ({
+    claim:          f.original_fact || f.claim || "",
+    exact_quote:    f.original_fact || f.claim || "",
+    verdict:        f.final_verdict  || "unverifiable",
+    explanation:    f.summary        || "",
+    explanation_lt: f.summary_lithuanian || "",
+    score:          typeof f.agreement_score === "number" ? f.agreement_score : 0,
+    sources:        f.articles_used  || [],
+    snippets:       (f.individual_results || []).map(r => ({
+      ...r,
+      explanation_lt: r.explanation_lithuanian || r.explanation_lt || ""
+    }))
+  }));
+
+  // Overall figures (fall back to first fact when the top-level is absent)
+  const overallVerdict  = response.final_verdict  || rawFacts[0]?.final_verdict  || "unverifiable";
+  const overallScore    = typeof response.agreement_score === "number"
+                            ? response.agreement_score
+                            : (rawFacts[0]?.agreement_score || 0);
+  const overallExpl     = currentLang === "lt"
+                            ? (response.summary_lithuanian || response.summary || rawFacts[0]?.summary_lithuanian || rawFacts[0]?.summary || "")
+                            : (response.summary            || rawFacts[0]?.summary || "");
+
+  const allArticles     = rawFacts.flatMap(f => f.articles_used || []);
+  const allIndividual   = rawFacts.flatMap(f =>
+    (f.individual_results || []).map(r => ({
+      ...r,
+      explanation_lt: r.explanation_lithuanian || r.explanation_lt || ""
+    }))
+  );
+
+  // ── Build the card scaffold ──────────────────────────────────────────────────
+  const isMulti = mappedFacts.length > 1;
+
   detailContent.innerHTML = `
-    <div class="resultCard" style="margin-top: 0;">
-      <div style="font-size:12px; color:var(--text-muted); text-align:left; margin-bottom:12px; font-style:italic; line-height:1.4;">
+    <div class="resultCard" style="margin-top:0;">
+
+      <!-- Claim text -->
+      <div style="font-size:12px; color:var(--text-muted); text-align:left;
+                  margin-bottom:12px; font-style:italic; line-height:1.4;">
         "${escapeHtml(claimText || "")}"
       </div>
- 
-      <div class="scoreRingContainer">
-        <svg class="progressRing" width="120" height="120">
-          <circle class="ringTrack" cx="60" cy="60" r="52"></circle>
-          <circle class="ringProgress" id="historyRingProgress" cx="60" cy="60" r="52"></circle>
-        </svg>
-        <div class="scoreCenter">
-          <span id="historyScoreValue">0</span>
-          <span class="scoreLabel">${t("confidence")}</span>
+
+      <!-- ── SINGLE-FACT: big score ring ────────────────────────────────── -->
+      <div id="hd-singleSection" style="display:${isMulti ? "none" : "block"};">
+        <div class="scoreRingContainer">
+          <svg class="progressRing" width="120" height="120">
+            <circle class="ringTrack"    cx="60" cy="60" r="52"></circle>
+            <circle class="ringProgress" cx="60" cy="60" r="52" id="hdRingProgress"></circle>
+          </svg>
+          <div class="scoreCenter">
+            <span id="hdScoreValue">0</span>
+            <span class="scoreLabel">${t("confidence")}</span>
+          </div>
         </div>
+        <div class="resultHeader">
+          <div class="verdict ${getVerdictClass(overallVerdict)}"
+               data-verdict-key="${overallVerdict}">
+            ${translateVerdict(overallVerdict)}
+          </div>
+        </div>
+        <div class="explanation">${escapeHtml(overallExpl)}</div>
       </div>
- 
-      <div class="resultHeader">
-        <div class="verdict ${vClass}">${verdictLabel}</div>
+
+      <!-- ── MULTI-FACT: donut chart + fact cards ───────────────────────── -->
+      <div id="hd-multiSection" style="display:${isMulti ? "block" : "none"};">
+
+        <!-- Verdict distribution donut (populated by JS below) -->
+        <div id="hd-verdictDistribution" style="display:none;">
+          <div style="font-size:13px; font-weight:700; text-align:left;
+                      margin-bottom:10px;" data-i18n="verdictBreakdown">
+            ${t("verdictBreakdown")}
+          </div>
+          <div class="donut-container">
+            <div class="donut-chart-wrapper">
+              <svg id="hd-verdictDonutSvg" width="120" height="120" viewBox="0 0 120 120"></svg>
+              <div class="donut-center-text" id="hd-donutCenterText"></div>
+            </div>
+            <div id="hd-verdictDonutLegend" class="donut-legend"></div>
+          </div>
+        </div>
+
+        <hr class="divider">
+        <div style="font-size:13px; font-weight:700; text-align:left; margin-bottom:10px;"
+             data-i18n="individualClaims">${t("individualClaims")}</div>
+        <div id="hd-factsList" style="display:flex; flex-direction:column; gap:10px;"></div>
       </div>
- 
-      <div class="explanation">${escapeHtml(explanation)}</div>
- 
+
       <hr class="divider">
- 
-      <details class="evidence-section">
+
+      <!-- Sources / evidence (always shown) -->
+      <details class="evidence-section" id="hd-evidenceSection">
         <summary>
-          <span>${t("sourcesUsedPrefix")}</span>: <span>${articles.length}</span>
+          <span data-i18n="sourcesUsedPrefix">${t("sourcesUsedPrefix")}</span>:
+          <span id="hd-sourceCount">${allArticles.length}</span>
         </summary>
-        <div class="articles-container">${articlesHtml}</div>
+        <div id="hd-articlesList" class="articles-container"></div>
+        <div class="section-header" data-i18n="evidenceBySource">${t("evidenceBySource")}</div>
+        <div id="hd-evidenceList"></div>
       </details>
+
     </div>
   `;
- 
+
+  // ── Populate articles ────────────────────────────────────────────────────────
+  const articlesListEl = detailContent.querySelector("#hd-articlesList");
+  if (allArticles.length > 0) {
+    articlesListEl.innerHTML = allArticles.map(a => `
+      <div class="article-item">
+        <a href="${escapeHtml(a.url || "")}" target="_blank" class="article-title">
+          ${escapeHtml(a.title || "")}
+        </a>
+        <div class="article-meta">
+          ${escapeHtml(a.source || "")} · ${escapeHtml(a.published_date || t("dateUnknown"))}
+        </div>
+      </div>`).join("");
+  } else {
+    articlesListEl.innerHTML = `<p class="article-meta">${t("noArticles")}</p>`;
+  }
+
+  // ── Populate evidence by source ──────────────────────────────────────────────
+  const evidenceListEl = detailContent.querySelector("#hd-evidenceList");
+  if (allIndividual.length > 0) {
+    evidenceListEl.innerHTML = allIndividual.map(r => {
+      const verdict = r.result || "unverifiable";
+      const vClass  = getVerdictClass(verdict);
+      const expl    = currentLang === "lt" ? (r.explanation_lt || r.explanation || "") : (r.explanation || "");
+      return `
+        <div class="evidence-item">
+          <div class="evidence-header">
+            <span class="evidence-title">${escapeHtml(r.source_title || t("unknownSource"))}</span>
+            <span class="verdict ${vClass}" data-verdict-key="${verdict}">${translateVerdict(verdict)}</span>
+          </div>
+          ${r.source_text ? `<blockquote class="evidence-snippet">${escapeHtml(r.source_text)}</blockquote>` : ""}
+          ${expl ? `<div class="evidence-explanation">${escapeHtml(expl)}</div>` : ""}
+          ${r.supporting_evidence?.length  ? `<div class="evidence-tag support">✓ ${escapeHtml(r.supporting_evidence[0])}</div>`  : ""}
+          ${r.contradicting_evidence?.length ? `<div class="evidence-tag contra">✗ ${escapeHtml(r.contradicting_evidence[0])}</div>` : ""}
+        </div>`;
+    }).join("");
+  } else {
+    evidenceListEl.innerHTML = `<p class="article-meta">${t("noEvidence")}</p>`;
+  }
+
+  // ── Branch: single vs multi ──────────────────────────────────────────────────
+  if (isMulti) {
+    // Render donut chart using the same helper, but targeting the hd- elements.
+    // We temporarily swap the IDs the helper reads, then restore them.
+    _renderDonutForHistory(mappedFacts, detailContent);
+
+    // Render individual fact cards (same markup as live check)
+    const factsList = detailContent.querySelector("#hd-factsList");
+    mappedFacts.forEach(fact => {
+      const factDiv = document.createElement("div");
+      factDiv.className = "fact-item";
+
+      const vClass       = getVerdictClass(fact.verdict || "");
+      const scorePercent = Math.round((fact.score || 0) * 100);
+      let scoreColorClass = "score-mid";
+      if (scorePercent >= 70) scoreColorClass = "score-high";
+      else if (scorePercent < 40) scoreColorClass = "score-low";
+
+      const sourcesHtml  = generateSourcesHtml(fact.sources || []);
+      const snippetsHtml = generateSnippetsHtml(fact.snippets || []);
+      const expl         = getLocalizedExplanation(fact);
+
+      factDiv.innerHTML = `
+        <div class="fact-top-row">
+          <div class="badge-stack">
+            <span class="badge-label">${t("confidence")}</span>
+            <div class="score-badge ${scoreColorClass}">${scorePercent}%</div>
+          </div>
+          <div class="fact-claim">"${escapeHtml(fact.claim)}"</div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <span class="fact-verdict ${vClass}"
+                data-verdict-key="${fact.verdict || "uncertain"}">
+            ${translateVerdict(fact.verdict || "uncertain")}
+          </span>
+        </div>
+        <div class="fact-explanation">${escapeHtml(expl)}</div>
+        <div class="fact-sources-list">${sourcesHtml}</div>
+        ${snippetsHtml ? `<div class="fact-snippets">${snippetsHtml}</div>` : ""}
+      `;
+      factsList.appendChild(factDiv);
+    });
+
+  } else {
+    // Animate the single-fact score ring
+    const scorePercent = Math.round(overallScore * 100);
+    const ring   = detailContent.querySelector("#hdRingProgress");
+    const scoreEl = detailContent.querySelector("#hdScoreValue");
+    if (ring && scoreEl) {
+      const circumference = 2 * Math.PI * 52;
+      ring.style.strokeDasharray  = `${circumference} ${circumference}`;
+      ring.style.strokeDashoffset = circumference;
+      ring.style.stroke = verdictToRingColor(overallVerdict);
+      setTimeout(() => {
+        ring.style.strokeDashoffset = circumference - (scorePercent / 100) * circumference;
+      }, 50);
+      let cur = 0;
+      const iv = setInterval(() => {
+        cur += Math.ceil(scorePercent / 20) || 1;
+        if (cur >= scorePercent) { cur = scorePercent; clearInterval(iv); }
+        scoreEl.textContent = cur;
+      }, 30);
+    }
+  }
+
   showHistoryState("detail");
- 
-  // Animate the score ring (same logic as your main updateScoreRing)
-  const ring = detailContent.querySelector("#historyRingProgress");
-  const scoreEl = detailContent.querySelector("#historyScoreValue");
-  if (ring && scoreEl) {
-    const radius = 52;
-    const circumference = 2 * Math.PI * radius;
-    ring.style.strokeDasharray = `${circumference} ${circumference}`;
-    ring.style.strokeDashoffset = circumference;
- 
-    if (scorePercent >= 70)      ring.style.stroke = "var(--score-high)";
-    else if (scorePercent >= 40) ring.style.stroke = "var(--score-mid)";
-    else                         ring.style.stroke = "var(--score-low)";
- 
-    const offset = circumference - (scorePercent / 100) * circumference;
-    // Small timeout so the CSS transition fires after the element is in the DOM
-    setTimeout(() => {
-      ring.style.strokeDashoffset = offset;
-    }, 50);
- 
-    let current = 0;
-    const interval = setInterval(() => {
-      current += Math.ceil(scorePercent / 20) || 1;
-      if (current >= scorePercent) { current = scorePercent; clearInterval(interval); }
-      scoreEl.textContent = current;
-    }, 30);
+  setTimeout(sendHeight, 100);
+}
+
+// ── Donut chart renderer scoped to history detail ─────────────────────────────
+// Mirrors renderVerdictDistributionChart() but targets the hd- prefixed elements
+// so it never clobbers the live-check chart.
+function _renderDonutForHistory(facts, container) {
+  const distEl   = container.querySelector("#hd-verdictDistribution");
+  const svg      = container.querySelector("#hd-verdictDonutSvg");
+  const legend   = container.querySelector("#hd-verdictDonutLegend");
+  const centerTx = container.querySelector("#hd-donutCenterText");
+
+  if (!facts || facts.length <= 1) {
+    if (distEl) distEl.style.display = "none";
+    return;
+  }
+  if (distEl) distEl.style.display = "block";
+
+  const counts = aggregateVerdictCounts(facts);
+  const total  = facts.length;
+  if (centerTx) centerTx.textContent = total;
+
+  const classMap = {
+    verified:          "donut-slice-true",
+    false:             "donut-slice-false",
+    unverifiable:      "donut-slice-uncertain",
+    conflicting:       "donut-slice-conflicting",
+    partially_verified:"donut-slice-partially"
+  };
+
+  if (svg) {
+    svg.innerHTML = "";
+    let currentAngle = 0;
+    const cx = 60, cy = 60, r = 52, innerR = 30;
+    const slices = Object.entries(counts).filter(([, c]) => c > 0);
+
+    slices.forEach(([key, count]) => {
+      const sliceAngle = (count / total) * 360;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+
+      if (sliceAngle === 360) {
+        path.setAttribute("d",
+          `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${cy + r} A ${r} ${r} 0 1 1 ${cx} ${cy - r} ` +
+          `M ${cx} ${cy - innerR} A ${innerR} ${innerR} 0 1 0 ${cx} ${cy + innerR} A ${innerR} ${innerR} 0 1 0 ${cx} ${cy - innerR}`
+        );
+      } else {
+        const s  = (currentAngle - 90) * Math.PI / 180;
+        const e  = (currentAngle + sliceAngle - 90) * Math.PI / 180;
+        const x1 = cx + r * Math.cos(s),       y1 = cy + r * Math.sin(s);
+        const x2 = cx + r * Math.cos(e),       y2 = cy + r * Math.sin(e);
+        const ix1= cx + innerR * Math.cos(s),  iy1= cy + innerR * Math.sin(s);
+        const ix2= cx + innerR * Math.cos(e),  iy2= cy + innerR * Math.sin(e);
+        const laf = sliceAngle > 180 ? 1 : 0;
+        path.setAttribute("d",
+          `M ${x1} ${y1} A ${r} ${r} 0 ${laf} 1 ${x2} ${y2} ` +
+          `L ${ix2} ${iy2} A ${innerR} ${innerR} 0 ${laf} 0 ${ix1} ${iy1} Z`
+        );
+      }
+      path.setAttribute("class", `donut-slice ${classMap[key] || ""}`);
+      svg.appendChild(path);
+      currentAngle += sliceAngle;
+    });
+  }
+
+  if (legend) {
+    legend.innerHTML = "";
+    Object.entries(counts)
+      .filter(([, c]) => c > 0)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([key, count]) => {
+        const row    = document.createElement("div");
+        row.className = "donut-legend-row";
+        const swatch = document.createElement("div");
+        swatch.className = `donut-legend-swatch ${classMap[key] || ""}`;
+        const label  = document.createElement("span");
+        label.className = "donut-legend-label";
+        label.textContent = translateVerdict(key);
+        label.setAttribute("data-verdict-key", key);
+        const countEl = document.createElement("span");
+        countEl.className = "donut-legend-count";
+        countEl.textContent = count;
+        row.append(swatch, label, countEl);
+        legend.appendChild(row);
+      });
   }
 }
 
 // ── Payment API base URL ──────────────────────────────────────────────────────
-//const PAYMENT_API = "https://api.healthfactchecker.site";
-const PAYMENT_API = "http://localhost:8000";
+const PAYMENT_API = "https://api.healthfactchecker.site";
+//const PAYMENT_API = "http://localhost:8000";
 
 async function checkLoginStatus() {
     const upgradeSection = document.getElementById('upgrade-section');

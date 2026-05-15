@@ -104,8 +104,8 @@ if (chrome.contextMenus) {
     console.log("Background received message:", request);
 
     if (request.type === "OCR_REQUEST") {
-      const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
-      // const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
+      //const OCR_API_URL = "http://localhost:8000/api/fact-check/ocr"; // local dev
+      const OCR_API_URL = "https://api.healthfactchecker.site/api/fact-check/ocr";
       try {
         // Reconstruct Blob from base64
         const binary = atob(request.data);

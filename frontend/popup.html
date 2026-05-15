@@ -9,7 +9,9 @@
 <body>
   <div class="container">
     <header>
-      <div class="logo-circle">⚕️</div>
+      <div class="logo-circle">
+		<img src="images/icon128.png" alt="MediCheck Logo" class="header-logo">
+	  </div>
       <h1 data-i18n="appTitle">MediCheck</h1>
       <button id="languageToggle" style="width: auto; margin: 0; padding: 5px; background: var(--primary); color: white; border-radius: 4px; box-shadow: none; font-size: 16px; margin-left: 8px;" title="Switch language">EN</button>
       <button id="themeToggle" style="width: auto; margin: 0; padding: 5px; background: none; box-shadow: none; font-size: 16px; margin-left: auto; margin-right: 2px;">
@@ -124,11 +126,7 @@
           <div class="section-header" data-i18n="evidenceBySource">Evidence by Source</div>
           <div id="evidenceList"></div>
         </details>
-
-        <details class="debug-section">
-          <summary data-i18n="rawJsonResponse">Raw JSON Response</summary>
-          <pre id="rawResponse"></pre>
-        </details>
+		
       </div>
 
     </div>
